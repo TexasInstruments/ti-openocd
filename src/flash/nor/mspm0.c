@@ -37,6 +37,7 @@
 #define FCTL_REG_CMDBYTEN				(FLASH_CONTROL_BASE + 0x1124)
 #define FCTL_REG_CMDDATA0				(FLASH_CONTROL_BASE + 0x1130)
 #define FCTL_REG_CMDWEPROTA				(FLASH_CONTROL_BASE + 0x11D0)
+#define FCTL_REG_CMDWEPROTB				(FLASH_CONTROL_BASE + 0x11D4)
 #define FCTL_REG_CMDWEPROTNM			(FLASH_CONTROL_BASE + 0x1210)
 #define FCTL_REG_STATCMD				(FLASH_CONTROL_BASE + 0x13D0)
 
@@ -59,7 +60,7 @@
 /* FCTL_CMDTYPE[SIZE] Bits */
 #define FCTL_CMDTYPE_SIZE_ONEWORD		(0x00000000U)
 #define FCTL_CMDTYPE_SIZE_SECTOR		(0x00000040U)
-
+#define FCTL_CMDTYPE_SIZE_BANK			(0x00000050U)
 #define MSPM0_MAX_PROTREGS				(3)
 
 #define MSPM0_FLASH_TIMEOUT_MS			(8000)
@@ -223,9 +224,19 @@ static const struct mspm0_part_info mspm0g_parts[] = {
 	{ "MSPM0G3507SRHBR", 0xae2d, 0x4c },
 };
 
+static const struct mspm0_part_info mspm0c_parts[] = {
+	{ "MSPS003F4SPW20R", 0x57b3, 0x70},
+	{ "MSPM0C1104SDGS20R",0x57b3, 0x71},
+	{ "MSPM0C1104SRUKR",0x57b3, 0x73},
+	{ "MSPM0C1104SDYYR",0x57b3, 0x75},
+	{ "MSPM0C1104SDDFR",0x57b3, 0x77},
+	{ "MSPM0C1104SDSGR",0x57b3, 0x79},
+};
+
 static const struct mspm0_family_info mspm0_finf[] = {
 	{ "MSPM0L", 0xbb82, ARRAY_SIZE(mspm0l_parts), mspm0l_parts },
 	{ "MSPM0G", 0xbb88, ARRAY_SIZE(mspm0g_parts), mspm0g_parts },
+	{ "MSPM0C", 0xbba1, ARRAY_SIZE(mspm0c_parts), mspm0c_parts },
 };
 
 /*
@@ -661,13 +672,6 @@ static int mspm0_erase(struct flash_bank *bank, unsigned int first, unsigned int
 	if (mspm0_info->did == 0)
 		return ERROR_FLASH_BANK_NOT_PROBED;
 
-	for (i = first; i < last; i++) {
-		if (bank->sectors[i].is_protected) {
-			LOG_ERROR("%s: Sector %d is protected", mspm0_info->name, i);
-			return ERROR_FLASH_PROTECTED;
-		}
-	}
-
 	/* Pick a copy of the current protection config for later restoration */
 	for (i = 0; i < mspm0_info->protect_reg_count; i++) {
 		target_read_u32(target,
@@ -677,7 +681,23 @@ static int mspm0_erase(struct flash_bank *bank, unsigned int first, unsigned int
 
 	for (uint32_t csa = first; csa < last; csa++) {
 		int retval;
+		uint32_t sectorMask;
 		uint32_t addr = csa * mspm0_info->sector_size;
+		uint32_t sectorNumber = (addr >> (uint32_t) 10);
+
+		if(sectorNumber < 32){
+			sectorMask = ((uint32_t)1) << sectorNumber; //creating a mask that will be shifted left depending on which sector is used 
+			sectorMask = !sectorMask;
+			target_write_u32(target, FCTL_REG_CMDWEPROTA, sectorMask);//turning off protection for that sector
+		}else if(sectorNumber >=32){
+			sectorMask = ((uint32_t)1) << ((sectorNumber - (uint32_t)32)/(uint32_t)8); //creating a mask that will be shifted left depending on which sector is used 
+			sectorMask = !sectorMask;
+			target_write_u32(target, FCTL_REG_CMDWEPROTB, sectorMask);//turning off protection for that sector
+		}else{
+			/*will not reach this*/
+		}
+		//LOG_ERROR("%s: Sector %d is protected", mspm0_info->name, i);
+		//return ERROR_FLASH_PROTECTED;
 
 		target_write_u32(target, FCTL_REG_CMDTYPE,
 				 (FCTL_CMDTYPE_COMMAND_ERASE | FCTL_CMDTYPE_SIZE_SECTOR));
@@ -714,8 +734,8 @@ static int mspm0_write(struct flash_bank *bank, const uint8_t *buffer,
 	struct mspm0_flash_bank *mspm0_info = bank->driver_priv;
 	unsigned int i;
 	uint32_t protect_reg_cache[MSPM0_MAX_PROTREGS];
-	uint32_t first_sec, last_sec;
-
+	//uint32_t first_sec, last_sec;
+	int pollStatus;
 	/*
 	 * XXX: TRM Says:
 	 * The number of program operations applied to a given word line must be
@@ -741,14 +761,8 @@ static int mspm0_write(struct flash_bank *bank, const uint8_t *buffer,
 		return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
 	}
 
-	first_sec = offset / mspm0_info->sector_size;
-	last_sec = (offset + count) / mspm0_info->sector_size;
-	for (i = first_sec; i <= last_sec; i++) {
-		if (bank->sectors[i].is_protected) {
-			LOG_ERROR("%s: Sector %d is protected", mspm0_info->name, i);
-			return ERROR_FLASH_PROTECTED;
-		}
-	}
+	//first_sec = offset / mspm0_info->sector_size;
+	//last_sec = (offset + count) / mspm0_info->sector_size;
 
 	/*
 	 * Pick a copy of the current protection config for later restoration
@@ -761,10 +775,24 @@ static int mspm0_write(struct flash_bank *bank, const uint8_t *buffer,
 				&protect_reg_cache[i]);
 	}
 
+	target_write_u32(target, FCTL_REG_CMDTYPE,(FCTL_CMDTYPE_COMMAND_ERASE |FCTL_CMDTYPE_SIZE_BANK));//configuring bank erase
+	target_write_u32(target, FCTL_REG_CMDWEPROTA, ((uint32_t)0x00000000)); //unprotecting all of CMDWEPROTA
+	target_write_u32(target, FCTL_REG_CMDWEPROTB, ((uint32_t)0x00000000)); //unprotecting all of CMDWEPROTB
+	target_write_u32(target, FCTL_REG_CMDWEPROTNM, ((uint32_t)0xFFFFFFFF)); //unprotecting all of CMDWEPROTNM
+	target_write_u32(target, FCTL_REG_CMDADDR, ((uint32_t)0x00000000)); //Setting operation to execute from start of MAIN
+	target_write_u32(target, FCTL_REG_CMDEXEC, FCTL_CMDEXEC_VAL_EXECUTE); //execute command
+
+	pollStatus = msmp0_fctl_wait_cmd_ok(bank);//poll and check to see if command was executed without issue
+	if (pollStatus){
+		return pollStatus;
+	}
+
 	while (count) {
 		uint32_t num_bytes_to_write;
 		uint32_t data_reg = FCTL_REG_CMDDATA0;
 		uint32_t bytes_en;
+		uint32_t sectorMask;
+		uint32_t sectorNumber;
 		int retval;
 
 		/*
@@ -804,6 +832,20 @@ static int mspm0_write(struct flash_bank *bank, const uint8_t *buffer,
 		target_write_u32(target, FCTL_REG_CMDBYTEN, bytes_en);
 
 		target_write_u32(target, FCTL_REG_CMDADDR, offset);
+
+		sectorNumber = (offset >> (uint32_t) 10); //acquiring sector number depending on the address set
+
+		if(sectorNumber < 32){
+			sectorMask = ((uint32_t)1) << sectorNumber; //creating a mask that will be shifted left depending on which sector is used 
+			sectorMask = !sectorMask;
+			target_write_u32(target, FCTL_REG_CMDWEPROTA, sectorMask);//turning off protection for that sector
+		}else if(sectorNumber >=32){
+			sectorMask = ((uint32_t)1) << ((sectorNumber - (uint32_t)32)/(uint32_t)8); //creating a mask that will be shifted left depending on which sector is used 
+			sectorMask = !sectorMask;
+			target_write_u32(target, FCTL_REG_CMDWEPROTB, sectorMask);//turning off protection for that sector
+		}else{
+			/*will not reach this*/
+		}
 
 		while (num_bytes_to_write) {
 			uint32_t sub_count;
@@ -911,6 +953,11 @@ static int mspm0_probe(struct flash_bank *bank)
 
 	return ERROR_OK;
 }
+
+// struct int mspm0_verify(struct flash_bank *bank, const uint8_t *buffer, uint32_t offset, uint32_t count)
+// {
+// 	return ERROR_OK;
+// }
 
 const struct flash_driver mspm0_flash = {
 	.name = "mspm0",
