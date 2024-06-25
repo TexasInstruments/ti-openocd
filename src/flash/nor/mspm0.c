@@ -19,6 +19,7 @@
 
 /* MPM0 Region memory map */
 #define MSPM0_FLASH_BASE_NONMAIN		(0x41c00000)
+#define MSPM0_FLASH_END_NONMAIN			(0x41c00400)
 #define MSPM0_FLASH_BASE_MAIN			(0x0)
 #define MSPM0_FLASH_BASE_DATA			(0x41d00000)
 
@@ -37,6 +38,7 @@
 #define FCTL_REG_CMDBYTEN				(FLASH_CONTROL_BASE + 0x1124)
 #define FCTL_REG_CMDDATA0				(FLASH_CONTROL_BASE + 0x1130)
 #define FCTL_REG_CMDWEPROTA				(FLASH_CONTROL_BASE + 0x11D0)
+#define FCTL_REG_CMDWEPROTB				(FLASH_CONTROL_BASE + 0x11D4)
 #define FCTL_REG_CMDWEPROTNM			(FLASH_CONTROL_BASE + 0x1210)
 #define FCTL_REG_STATCMD				(FLASH_CONTROL_BASE + 0x13D0)
 
@@ -55,15 +57,20 @@
 /* FCTL_CMDTYPE[COMMAND] Bits */
 #define FCTL_CMDTYPE_COMMAND_PROGRAM	(0x00000001U)
 #define FCTL_CMDTYPE_COMMAND_ERASE		(0x00000002U)
+#define FCTL_CMDTYPE_COMMAND_CLRSTATUS	(0x00000005U)
 
 /* FCTL_CMDTYPE[SIZE] Bits */
 #define FCTL_CMDTYPE_SIZE_ONEWORD		(0x00000000U)
 #define FCTL_CMDTYPE_SIZE_SECTOR		(0x00000040U)
-
+#define FCTL_CMDTYPE_SIZE_BANK			(0x00000050U)
 #define MSPM0_MAX_PROTREGS				(3)
 
 #define MSPM0_FLASH_TIMEOUT_MS			(8000)
 #define ERR_STRING_MAX					(255)
+
+/* SYSCTL BASE*/
+#define SYSCTL_BASE 					(0x400AF000U)
+#define SYSCTL_SECCFG_SECSTATUS			(SYSCTL_BASE + 0x00003048U)
 
 struct mspm0_flash_bank {
 	/* chip id register */
@@ -220,12 +227,69 @@ static const struct mspm0_part_info mspm0g_parts[] = {
 	{ "MSPM0G3507SPMR", 0xae2d, 0xc7 },
 	{ "MSPM0G3507SPTR", 0xae2d, 0x3f },
 	{ "MSPM0G3507SRGZR", 0xae2d, 0xf7 },
-	{ "MSPM0G3507SRHBR", 0xae2d, 0x4c },
+	{ "MSPM0G3507SRHBR", 0xae2d, 0x4c }, 
+	{ "M0G3107QPMRQ1", 0x4e2f, 0x51 },
+	{ "M0G3107QPTRQ1", 0x4e2f, 0xc7},
+	{ "M0G3107QRGZRQ1", 0x4e2f, 0x8a },
+	{ "M0G3107QRHBRQ1", 0x4e2f, 0x9a},
+	{ "M0G3107QDGS28RQ1", 0x4e2f, 0xd5},
+	{ "M0G3107QDGS28RQ1", 0x4e2f, 0x67},
+	{ "M0G3107QDGS20RQ1", 0x4e2f, 0xfd},
+	{ "M0G3106QPMRQ1", 0x54C7, 0x08}, 
+	{ "M0G3105QDGS32RQ1", 0x1349, 0x08},
+	{ "M0G3106QPTRQ1", 0x54C7, 0x3F},
+	{ "M0G3105QDGS28RQ1", 0x1349, 0x1B},
+	{ "M0G3106QRGZRQ1", 0x94AD, 0xE6}, 
+	{ "M0G3105QDGS20RQ1", 0x1349, 0xFB},
+	{ "M0G3106QRHBRQ1", 0x94AD, 0x20},
+	{ "M0G3106QDGS32RQ1", 0x94AD, 0x8D},
+	{ "M0G3106QDGS28RQ1", 0x94AD, 0x03},
+	{ "M0G3106QDGS20RQ1", 0x94AD, 0x6F},
+	{ "M0G3105QPMRQ1", 0x1349, 0xD0},
+	{ "M0G3105QPTRQ1", 0x1349, 0xEF},
+	{ "M0G3105QRGZRQ1", 0x1349, 0x70},
+	{ "M0G3105QRHBRQ1", 0x1349, 0x01},
+};
+
+static const struct mspm0_part_info mspm0c_parts[] = {
+	{ "MSPS003F4SPW20R", 0x57b3, 0x70},
+	{ "MSPM0C1104SDGS20R",0x57b3, 0x71},
+	{ "MSPM0C1104SRUKR",0x57b3, 0x73},
+	{ "MSPM0C1104SDYYR",0x57b3, 0x75},
+	{ "MSPM0C1104SDDFR",0x57b3, 0x77},
+	{ "MSPM0C1104SDSGR",0x57b3, 0x79},
+};
+
+static const struct mspm0_part_info mspm0lx22x_parts[] = {
+	{ "MSPM0L1227SRGER", 0x7C32, 0xF1},
+    { "MSPM0L1227SPTR", 0x7C32, 0xC9},
+	{ "MSPM0L1227SPMR", 0x7C32, 0x1C},
+	{ "MSPM0L1227SPNAR", 0x7C32, 0x91},
+	{ "MSPM0L1227SPNR", 0x7C32, 0x39},
+	{ "MSPM0L1228SRGER", 0x33F7, 0x13},
+	{ "MSPM0L1228SRHBR", 0x33F7, 0x3A},
+	{ "MSPM0L1228SRGZR", 0x33F7, 0xBC},
+	{ "MSPM0L1228SPTR", 0x33F7, 0xF8},
+	{ "MSPM0L1228SPMR", 0x33F7, 0xCE},
+	{ "MSPM0L1228SPNAR", 0x33F7, 0x59},
+	{ "MSPM0L1228SPNR", 0x33F7, 0x7},
+	{ "MSPM0L2227SRGZR", 0x5E8F, 0x90},
+	{ "MSPM0L2227SPTR", 0x5E8F, 0xA},
+	{ "MSPM0L2227SPMR", 0x5E8F, 0x6D},
+	{ "MSPM0L2227SPNAR", 0x5E8F, 0x24},
+	{ "MSPM0L2227SPNR", 0x5E8F, 0x68},
+	{ "MSPM0L2228SRGZR", 0x2C38, 0xB8},
+	{ "MSPM0L2228SPTR", 0x2C38, 0x25},
+	{ "MSPM0L2228SPMR", 0x2C38, 0x6E},
+	{ "MSPM0L2228SPNAR", 0x2C38, 0x63},
+	{ "MSPM0L2228SPNR", 0x2C38, 0x3C},
 };
 
 static const struct mspm0_family_info mspm0_finf[] = {
 	{ "MSPM0L", 0xbb82, ARRAY_SIZE(mspm0l_parts), mspm0l_parts },
 	{ "MSPM0G", 0xbb88, ARRAY_SIZE(mspm0g_parts), mspm0g_parts },
+	{ "MSPM0C", 0xbba1, ARRAY_SIZE(mspm0c_parts), mspm0c_parts },
+	{ "MPSM0Lx22x", 0xbb9f, ARRAY_SIZE(mspm0lx22x_parts), mspm0lx22x_parts },
 };
 
 /*
@@ -409,6 +473,74 @@ static void msmp0_fctl_translate_ret_err(uint32_t return_code, char *ret_str)
 			strncat(ret_str, " ", ERR_STRING_MAX);
 		}
 	}
+}
+
+static int mspm0_fctl_unprotect_sector(struct flash_bank *bank, uint32_t addr)
+{
+	struct mspm0_flash_bank *mspm0_info = bank->driver_priv;
+	struct target *target = bank->target;
+    uint32_t sectorNumber = (addr >> (uint32_t) 10); //sector number of address passed in 
+	uint32_t sectorInBank = sectorNumber;
+	uint32_t physicalSectorNumber = sectorNumber;
+	uint32_t sysctlSecStatus;
+	uint32_t executingFromUpperBank;
+	uint32_t sectorMask;
+
+	/*
+	 * If the device has dual banks we will need to check if it is executing from the upper bank/
+	 * in the scenario that we are executing from upper bank then we will need to protect it using
+	 * CMDWEPROTA rather than CMDWEPROTB. We also need to take into account what sector we're using
+	 * when going between banks.
+	 */
+	if (mspm0_info->main_flash_num_banks > 1){
+		target_read_u32(target, SYSCTL_SECCFG_SECSTATUS, &sysctlSecStatus);
+		executingFromUpperBank = mspm0_extract_val(sysctlSecStatus, 12, 12);
+		if (executingFromUpperBank){
+			if (sectorNumber > (mspm0_info->main_flash_size_kb / 2)){
+				physicalSectorNumber = sectorNumber - (mspm0_info->main_flash_size_kb / 2);
+			} else {
+				physicalSectorNumber = sectorNumber + (mspm0_info->main_flash_size_kb / 2);
+			}
+		}
+		sectorInBank = sectorNumber % (mspm0_info->main_flash_size_kb / mspm0_info->main_flash_num_banks);
+	}
+
+	/*
+	 * All MSPM0 devices will use CMDWEPROTA and CMDWEPROTB for MAIN flash. CMDWEPROTC is included in the
+	 * TRM/DATASHEET but it will never be used or applied for any present or future SOC.
+	 */
+
+	if (sectorNumber < mspm0_info->main_flash_size_kb) { 
+		/* Using CMDWEPROTA*/
+		if (physicalSectorNumber < (uint32_t) 32){
+			sectorMask = (uint32_t) 1 << physicalSectorNumber;
+			target_write_u32(target, FCTL_REG_CMDWEPROTA, ~sectorMask);
+		} else {
+			/* Using CMDWEPROTB*/
+			if (sectorInBank < (uint32_t) 256){
+				/* Dual bank system*/
+				if (mspm0_info->main_flash_num_banks > 1){
+					sectorMask = (uint32_t)1 << (sectorInBank / (uint32_t) 8);
+					target_write_u32(target, FCTL_REG_CMDWEPROTB, ~sectorMask);
+				} else{ /* Single bank system*/
+					sectorMask = (uint32_t)1 << ((sectorInBank - (uint32_t)32) / (uint32_t)8);
+					target_write_u32(target, FCTL_REG_CMDWEPROTB, ~sectorMask);
+				}
+			}
+		}
+	} else{ 
+		/* Due to the consequences of NONMAIN memory we will perform an additonal check to confirm 
+		 * that the address being passed through is NONMAIN flash. If the address passed through 
+		 * is not proper we will return an error.
+		 */
+		if (addr <= MSPM0_FLASH_END_NONMAIN && addr >= MSPM0_FLASH_BASE_NONMAIN){
+			sectorMask = (uint32_t) 1 << (sectorNumber % (uint32_t) 32);
+        	target_write_u32(target, FCTL_REG_CMDWEPROTNM, ~sectorMask);
+		} else{//illegal memory access
+			return ERROR_FLASH_DST_OUT_OF_BANK;
+		}
+	} 
+	return ERROR_OK;
 }
 
 static int msmp0_fctl_wait_cmd_ok(struct flash_bank *bank)
@@ -661,13 +793,6 @@ static int mspm0_erase(struct flash_bank *bank, unsigned int first, unsigned int
 	if (mspm0_info->did == 0)
 		return ERROR_FLASH_BANK_NOT_PROBED;
 
-	for (i = first; i < last; i++) {
-		if (bank->sectors[i].is_protected) {
-			LOG_ERROR("%s: Sector %d is protected", mspm0_info->name, i);
-			return ERROR_FLASH_PROTECTED;
-		}
-	}
-
 	/* Pick a copy of the current protection config for later restoration */
 	for (i = 0; i < mspm0_info->protect_reg_count; i++) {
 		target_read_u32(target,
@@ -679,6 +804,12 @@ static int mspm0_erase(struct flash_bank *bank, unsigned int first, unsigned int
 		int retval;
 		uint32_t addr = csa * mspm0_info->sector_size;
 
+		retval = mspm0_fctl_unprotect_sector(bank,addr);
+		if (retval) {
+			LOG_ERROR("%s: Illegal access at address 0x%08" PRIx32
+				  "(sector: %d)", mspm0_info->name, addr, csa);
+			return retval;
+		}
 		target_write_u32(target, FCTL_REG_CMDTYPE,
 				 (FCTL_CMDTYPE_COMMAND_ERASE | FCTL_CMDTYPE_SIZE_SECTOR));
 		target_write_u32(target, FCTL_REG_CMDADDR, addr);
@@ -714,7 +845,6 @@ static int mspm0_write(struct flash_bank *bank, const uint8_t *buffer,
 	struct mspm0_flash_bank *mspm0_info = bank->driver_priv;
 	unsigned int i;
 	uint32_t protect_reg_cache[MSPM0_MAX_PROTREGS];
-	uint32_t first_sec, last_sec;
 
 	/*
 	 * XXX: TRM Says:
@@ -739,15 +869,6 @@ static int mspm0_write(struct flash_bank *bank, const uint8_t *buffer,
 		LOG_ERROR("%s: Offset 0x%0" PRIx32 " Must be aligned to %d bytes",
 			  mspm0_info->name, offset, mspm0_info->flash_word_size_bytes);
 		return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
-	}
-
-	first_sec = offset / mspm0_info->sector_size;
-	last_sec = (offset + count) / mspm0_info->sector_size;
-	for (i = first_sec; i <= last_sec; i++) {
-		if (bank->sectors[i].is_protected) {
-			LOG_ERROR("%s: Sector %d is protected", mspm0_info->name, i);
-			return ERROR_FLASH_PROTECTED;
-		}
 	}
 
 	/*
@@ -804,6 +925,11 @@ static int mspm0_write(struct flash_bank *bank, const uint8_t *buffer,
 		target_write_u32(target, FCTL_REG_CMDBYTEN, bytes_en);
 
 		target_write_u32(target, FCTL_REG_CMDADDR, offset);
+
+		/* Unprotecting sector of memory accordingly*/
+		retval = mspm0_fctl_unprotect_sector(bank,offset);
+		if (retval)
+			return retval;
 
 		while (num_bytes_to_write) {
 			uint32_t sub_count;
@@ -884,7 +1010,7 @@ static int mspm0_probe(struct flash_bank *bank)
 		break;
 	case MSPM0_FLASH_BASE_DATA:
 		if (!mspm0_info->data_flash_size_kb) {
-			LOG_ERROR("%s: Data region NOT available!", mspm0_info->name);
+			LOG_INFO("%s: Data region NOT available!", mspm0_info->name);
 			bank->size = 0x0;
 			bank->num_sectors = 0x0;
 			return ERROR_OK;
