@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 /***************************************************************************
- * Copyright (C) 2023 Texas Instruments Incorporated - https://www.ti.com/
+ * Copyright (C) 2023-2024 Texas Instruments Incorporated - https://www.ti.com/
  *
  * NOR flash driver for MSPM0L and MSPM0G class of uC from Texas Instruments.
  *
@@ -57,19 +57,18 @@
 /* FCTL_CMDTYPE[COMMAND] Bits */
 #define FCTL_CMDTYPE_COMMAND_PROGRAM	(0x00000001U)
 #define FCTL_CMDTYPE_COMMAND_ERASE		(0x00000002U)
-#define FCTL_CMDTYPE_COMMAND_CLRSTATUS	(0x00000005U)
 
 /* FCTL_CMDTYPE[SIZE] Bits */
 #define FCTL_CMDTYPE_SIZE_ONEWORD		(0x00000000U)
 #define FCTL_CMDTYPE_SIZE_SECTOR		(0x00000040U)
-#define FCTL_CMDTYPE_SIZE_BANK			(0x00000050U)
+
 #define MSPM0_MAX_PROTREGS				(3)
 
 #define MSPM0_FLASH_TIMEOUT_MS			(8000)
 #define ERR_STRING_MAX					(255)
 
 /* SYSCTL BASE*/
-#define SYSCTL_BASE 					(0x400AF000U)
+#define SYSCTL_BASE						(0x400AF000U)
 #define SYSCTL_SECCFG_SECSTATUS			(SYSCTL_BASE + 0x00003048U)
 
 struct mspm0_flash_bank {
@@ -99,14 +98,14 @@ struct mspm0_flash_bank {
 };
 
 struct mspm0_part_info {
-	const char *partname;
+	const char *part_name;
 	uint16_t part;
 	uint8_t variant;
 };
 
 struct mspm0_family_info {
-	const char *familyname;
-	uint16_t partnum;
+	const char *family_name;
+	uint16_t part_num;
 	uint8_t part_count;
 	const struct mspm0_part_info *part_info;
 };
@@ -227,7 +226,7 @@ static const struct mspm0_part_info mspm0g_parts[] = {
 	{ "MSPM0G3507SPMR", 0xae2d, 0xc7 },
 	{ "MSPM0G3507SPTR", 0xae2d, 0x3f },
 	{ "MSPM0G3507SRGZR", 0xae2d, 0xf7 },
-	{ "MSPM0G3507SRHBR", 0xae2d, 0x4c }, 
+	{ "MSPM0G3507SRHBR", 0xae2d, 0x4c },
 	{ "M0G3107QPMRQ1", 0x4e2f, 0x51 },
 	{ "M0G3107QPTRQ1", 0x4e2f, 0xc7},
 	{ "M0G3107QRGZRQ1", 0x4e2f, 0x8a },
@@ -235,11 +234,11 @@ static const struct mspm0_part_info mspm0g_parts[] = {
 	{ "M0G3107QDGS28RQ1", 0x4e2f, 0xd5},
 	{ "M0G3107QDGS28RQ1", 0x4e2f, 0x67},
 	{ "M0G3107QDGS20RQ1", 0x4e2f, 0xfd},
-	{ "M0G3106QPMRQ1", 0x54C7, 0x08}, 
+	{ "M0G3106QPMRQ1", 0x54C7, 0x08},
 	{ "M0G3105QDGS32RQ1", 0x1349, 0x08},
 	{ "M0G3106QPTRQ1", 0x54C7, 0x3F},
 	{ "M0G3105QDGS28RQ1", 0x1349, 0x1B},
-	{ "M0G3106QRGZRQ1", 0x94AD, 0xE6}, 
+	{ "M0G3106QRGZRQ1", 0x94AD, 0xE6},
 	{ "M0G3105QDGS20RQ1", 0x1349, 0xFB},
 	{ "M0G3106QRHBRQ1", 0x94AD, 0x20},
 	{ "M0G3106QDGS32RQ1", 0x94AD, 0x8D},
@@ -251,18 +250,20 @@ static const struct mspm0_part_info mspm0g_parts[] = {
 	{ "M0G3105QRHBRQ1", 0x1349, 0x01},
 };
 
+/* https://www.ti.com/lit/gpn/mspm0c1104 Table 8-12 and so on */
 static const struct mspm0_part_info mspm0c_parts[] = {
 	{ "MSPS003F4SPW20R", 0x57b3, 0x70},
-	{ "MSPM0C1104SDGS20R",0x57b3, 0x71},
-	{ "MSPM0C1104SRUKR",0x57b3, 0x73},
-	{ "MSPM0C1104SDYYR",0x57b3, 0x75},
-	{ "MSPM0C1104SDDFR",0x57b3, 0x77},
-	{ "MSPM0C1104SDSGR",0x57b3, 0x79},
+	{ "MSPM0C1104SDGS20R", 0x57b3, 0x71},
+	{ "MSPM0C1104SRUKR", 0x57b3, 0x73},
+	{ "MSPM0C1104SDYYR", 0x57b3, 0x75},
+	{ "MSPM0C1104SDDFR", 0x57b3, 0x77},
+	{ "MSPM0C1104SDSGR", 0x57b3, 0x79},
 };
 
+/* https://www.ti.com/lit/gpn/MSPM0L2228 Table 8-16 and so on */
 static const struct mspm0_part_info mspm0lx22x_parts[] = {
 	{ "MSPM0L1227SRGER", 0x7C32, 0xF1},
-    { "MSPM0L1227SPTR", 0x7C32, 0xC9},
+	{ "MSPM0L1227SPTR", 0x7C32, 0xC9},
 	{ "MSPM0L1227SPMR", 0x7C32, 0x1C},
 	{ "MSPM0L1227SPNAR", 0x7C32, 0x91},
 	{ "MSPM0L1227SPNR", 0x7C32, 0x39},
@@ -287,9 +288,9 @@ static const struct mspm0_part_info mspm0lx22x_parts[] = {
 
 static const struct mspm0_family_info mspm0_finf[] = {
 	{ "MSPM0L", 0xbb82, ARRAY_SIZE(mspm0l_parts), mspm0l_parts },
+	{ "MPSM0Lx22x", 0xbb9f, ARRAY_SIZE(mspm0lx22x_parts), mspm0lx22x_parts },
 	{ "MSPM0G", 0xbb88, ARRAY_SIZE(mspm0g_parts), mspm0g_parts },
 	{ "MSPM0C", 0xbba1, ARRAY_SIZE(mspm0c_parts), mspm0c_parts },
-	{ "MPSM0Lx22x", 0xbb9f, ARRAY_SIZE(mspm0lx22x_parts), mspm0lx22x_parts },
 };
 
 /*
@@ -390,7 +391,7 @@ static int mspm0_read_part_info(struct flash_bank *bank)
 
 	/* Check if we at least know the family of devices */
 	for (int i = 0; i < (int)ARRAY_SIZE(mspm0_finf); i++) {
-		if (mspm0_finf[i].partnum == pnum) {
+		if (mspm0_finf[i].part_num == pnum) {
 			minfo_idx = i;
 			minfo = &mspm0_finf[i];
 			break;
@@ -417,13 +418,13 @@ static int mspm0_read_part_info(struct flash_bank *bank)
 		}
 	}
 	if (minfo_idx == 0xff) {
-		mspm0_info->name = mspm0_finf[minfo_idx].familyname;
+		mspm0_info->name = mspm0_finf[minfo_idx].family_name;
 		LOG_WARNING("Unidentified PART[0x%" PRIx32 "]/variant[0x%" PRIx32
 			    "], known DeviceID[0x%" PRIx32
 			    "]. Attempting to proceed as %s.", part, variant, pnum,
 			    mspm0_info->name);
 	} else {
-		mspm0_info->name = mspm0_finf[minfo_idx].part_info[pinfo_idx].partname;
+		mspm0_info->name = mspm0_finf[minfo_idx].part_info[pinfo_idx].part_name;
 		LOG_DEBUG("Part: %s detected", mspm0_info->name);
 	}
 
@@ -475,72 +476,97 @@ static void msmp0_fctl_translate_ret_err(uint32_t return_code, char *ret_str)
 	}
 }
 
-static int mspm0_fctl_unprotect_sector(struct flash_bank *bank, uint32_t addr)
+static int mspm0_fctl_get_sector_reg(struct flash_bank *bank, uint32_t addr,
+									 uint32_t *reg, uint32_t *sector_mask)
 {
 	struct mspm0_flash_bank *mspm0_info = bank->driver_priv;
 	struct target *target = bank->target;
-    uint32_t sectorNumber = (addr >> (uint32_t) 10); //sector number of address passed in 
-	uint32_t sectorInBank = sectorNumber;
-	uint32_t physicalSectorNumber = sectorNumber;
-	uint32_t sysctlSecStatus;
-	uint32_t executingFromUpperBank;
-	uint32_t sectorMask;
+	uint32_t sector_num = (addr >> 10);
+	uint32_t sector_in_bank = sector_num;
+	uint32_t phys_sector_num = sector_num;
+	uint32_t sysctl_sec_status;
+	uint32_t exec_upper_bank;
 
 	/*
-	 * If the device has dual banks we will need to check if it is executing from the upper bank/
-	 * in the scenario that we are executing from upper bank then we will need to protect it using
-	 * CMDWEPROTA rather than CMDWEPROTB. We also need to take into account what sector we're using
-	 * when going between banks.
+	 * If the device has dual banks we will need to check if it is configured
+	 * to execute from the upper bank. In the scenario that we are executing
+	 * from upper bank then we will need to protect it using CMDWEPROTA rather
+	 * than CMDWEPROTB. We also need to take into account what sector
+	 * we're using when going between banks.
 	 */
-	if (mspm0_info->main_flash_num_banks > 1){
-		target_read_u32(target, SYSCTL_SECCFG_SECSTATUS, &sysctlSecStatus);
-		executingFromUpperBank = mspm0_extract_val(sysctlSecStatus, 12, 12);
-		if (executingFromUpperBank){
-			if (sectorNumber > (mspm0_info->main_flash_size_kb / 2)){
-				physicalSectorNumber = sectorNumber - (mspm0_info->main_flash_size_kb / 2);
+	if (mspm0_info->main_flash_num_banks > 1) {
+		target_read_u32(target, SYSCTL_SECCFG_SECSTATUS, &sysctl_sec_status);
+		exec_upper_bank = mspm0_extract_val(sysctl_sec_status, 12, 12);
+		if (exec_upper_bank) {
+			if (sector_num > (mspm0_info->main_flash_size_kb / 2)) {
+				phys_sector_num =
+				    sector_num - (mspm0_info->main_flash_size_kb / 2);
 			} else {
-				physicalSectorNumber = sectorNumber + (mspm0_info->main_flash_size_kb / 2);
+				phys_sector_num =
+				    sector_num + (mspm0_info->main_flash_size_kb / 2);
 			}
 		}
-		sectorInBank = sectorNumber % (mspm0_info->main_flash_size_kb / mspm0_info->main_flash_num_banks);
+		sector_in_bank =
+		    sector_num % (mspm0_info->main_flash_size_kb /
+				    mspm0_info->main_flash_num_banks);
 	}
 
 	/*
-	 * All MSPM0 devices will use CMDWEPROTA and CMDWEPROTB for MAIN flash. CMDWEPROTC is included in the
-	 * TRM/DATASHEET but it will never be used or applied for any present or future SOC.
+	 * NOTE: All MSPM0 devices will use CMDWEPROTA and CMDWEPROTB for MAIN
+	 * flash. CMDWEPROTC is included in the TRM/DATASHEET but for all
+	 * practical purposes, it is considered reserved.
 	 */
 
-	if (sectorNumber < mspm0_info->main_flash_size_kb) { 
-		/* Using CMDWEPROTA*/
-		if (physicalSectorNumber < (uint32_t) 32){
-			sectorMask = (uint32_t) 1 << physicalSectorNumber;
-			target_write_u32(target, FCTL_REG_CMDWEPROTA, ~sectorMask);
-		} else {
-			/* Using CMDWEPROTB*/
-			if (sectorInBank < (uint32_t) 256){
-				/* Dual bank system*/
-				if (mspm0_info->main_flash_num_banks > 1){
-					sectorMask = (uint32_t)1 << (sectorInBank / (uint32_t) 8);
-					target_write_u32(target, FCTL_REG_CMDWEPROTB, ~sectorMask);
-				} else{ /* Single bank system*/
-					sectorMask = (uint32_t)1 << ((sectorInBank - (uint32_t)32) / (uint32_t)8);
-					target_write_u32(target, FCTL_REG_CMDWEPROTB, ~sectorMask);
-				}
+	if (sector_num < mspm0_info->main_flash_size_kb) {
+		/* Use CMDWEPROTA */
+		if (phys_sector_num < (uint32_t)32) {
+			*sector_mask = (uint32_t)1 << phys_sector_num;
+			*reg = FCTL_REG_CMDWEPROTA;
+			return ERROR_OK;
+		}
+
+		/* Use CMDWEPROTB */
+		if (sector_in_bank < (uint32_t)256) {
+			/* Dual bank system */
+			if (mspm0_info->main_flash_num_banks > 1) {
+				*sector_mask = (uint32_t)1 << (sector_in_bank / 8);
+			} else {	/* Single bank system */
+				*sector_mask = (uint32_t)1 << ((sector_in_bank - 32) / 8);
 			}
+			*reg = FCTL_REG_CMDWEPROTB;
+			return ERROR_OK;
 		}
-	} else{ 
-		/* Due to the consequences of NONMAIN memory we will perform an additonal check to confirm 
-		 * that the address being passed through is NONMAIN flash. If the address passed through 
-		 * is not proper we will return an error.
+	} else {
+		/*
+		 * Due to the consequences of NONMAIN memory we will perform an
+		 * additional check to confirm that the address being passed through
+		 * is NONMAIN flash. If the address passed through is not proper we
+		 * will return an error.
 		 */
-		if (addr <= MSPM0_FLASH_END_NONMAIN && addr >= MSPM0_FLASH_BASE_NONMAIN){
-			sectorMask = (uint32_t) 1 << (sectorNumber % (uint32_t) 32);
-        	target_write_u32(target, FCTL_REG_CMDWEPROTNM, ~sectorMask);
-		} else{//illegal memory access
-			return ERROR_FLASH_DST_OUT_OF_BANK;
+		if (addr >= MSPM0_FLASH_BASE_NONMAIN && addr <= MSPM0_FLASH_END_NONMAIN) {
+			*sector_mask = 1 << (sector_num % 32);
+			*reg = FCTL_REG_CMDWEPROTNM;
+			return ERROR_OK;
 		}
-	} 
-	return ERROR_OK;
+	}
+
+	LOG_ERROR("%s: Unable to map sector protect reg for address 0x%08" PRIx32,
+			  mspm0_info->name, addr);
+	return ERROR_FLASH_DST_OUT_OF_BANK;
+}
+
+static int mspm0_fctl_unprotect_sector(struct flash_bank *bank, uint32_t addr)
+{
+	struct target *target = bank->target;
+	uint32_t reg = 0x0;
+	uint32_t sector_mask = 0x0;
+	int ret;
+
+	ret = mspm0_fctl_get_sector_reg(bank, addr, &reg, &sector_mask);
+	if (ret == ERROR_OK)
+		target_write_u32(target, reg, ~sector_mask);
+
+	return ret;
 }
 
 static int msmp0_fctl_wait_cmd_ok(struct flash_bank *bank)
@@ -804,7 +830,7 @@ static int mspm0_erase(struct flash_bank *bank, unsigned int first, unsigned int
 		int retval;
 		uint32_t addr = csa * mspm0_info->sector_size;
 
-		retval = mspm0_fctl_unprotect_sector(bank,addr);
+		retval = mspm0_fctl_unprotect_sector(bank, addr);
 		if (retval) {
 			LOG_ERROR("%s: Illegal access at address 0x%08" PRIx32
 				  "(sector: %d)", mspm0_info->name, addr, csa);
@@ -926,15 +952,18 @@ static int mspm0_write(struct flash_bank *bank, const uint8_t *buffer,
 
 		target_write_u32(target, FCTL_REG_CMDADDR, offset);
 
-		/* Unprotecting sector of memory accordingly*/
-		retval = mspm0_fctl_unprotect_sector(bank,offset);
+		retval = mspm0_fctl_unprotect_sector(bank, offset);
 		if (retval)
 			return retval;
 
 		while (num_bytes_to_write) {
 			uint32_t sub_count;
+			uint32_t write_value;
 
-			target_write_u32(target, data_reg, *((uint32_t *)buffer));
+			/* Make sure alignments are handled correctly */
+			(void)memcpy(&write_value, buffer, sizeof(uint32_t));
+
+			target_write_u32(target, data_reg, write_value);
 			sub_count =
 			    (num_bytes_to_write <
 			     sizeof(uint32_t)) ? num_bytes_to_write : 4;
