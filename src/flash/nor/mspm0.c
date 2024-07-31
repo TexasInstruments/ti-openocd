@@ -61,6 +61,14 @@
 /* FCTL_CMDTYPE[SIZE] Bits */
 #define FCTL_CMDTYPE_SIZE_ONEWORD		(0x00000000U)
 #define FCTL_CMDTYPE_SIZE_SECTOR		(0x00000040U)
+#define FCTL_CMDTYPE_SIZE_BANK			(0x00000050U)
+
+/* FCTL_CMDCTL[BANK] Bits*/
+#define FCTL_CMDCTL_BANKSEL_0			(0x00000010U)
+#define FCTL_CMDCTL_BANKSEL_1			(0x00000020U)
+
+/* FCTL_CMDCTL[ADDRXLATEOVER] Bits*/
+#define FCTL_CMDCTL_ADDROVERRIDE		(0x00010000U)
 
 #define MSPM0_MAX_PROTREGS				(3)
 
@@ -810,6 +818,7 @@ static int mspm0_erase(struct flash_bank *bank, unsigned int first, unsigned int
 	struct mspm0_flash_bank *mspm0_info = bank->driver_priv;
 	unsigned int i;
 	uint32_t protect_reg_cache[MSPM0_MAX_PROTREGS];
+	int retval;
 
 	if (bank->target->state != TARGET_HALTED) {
 		LOG_ERROR("%s: Please halt target for erasing flash", mspm0_info->name);
@@ -826,39 +835,54 @@ static int mspm0_erase(struct flash_bank *bank, unsigned int first, unsigned int
 				&protect_reg_cache[i]);
 	}
 
-	for (uint32_t csa = first; csa < last; csa++) {
-		int retval;
-		uint32_t addr = csa * mspm0_info->sector_size;
-
-		retval = mspm0_fctl_unprotect_sector(bank, addr);
-		if (retval) {
-			LOG_ERROR("%s: Illegal access at address 0x%08" PRIx32
-				  "(sector: %d)", mspm0_info->name, addr, csa);
-			return retval;
+	if(mspm0_info->main_flash_num_banks > 1){ //dual bank device
+		for (uint32_t csa = first; csa < last; csa++) {
+			
+			uint32_t addr = csa * mspm0_info->sector_size;
+			retval = mspm0_fctl_unprotect_sector(bank, addr);
+			if (retval) {
+				LOG_ERROR("%s: Illegal access at address 0x%08" PRIx32
+					"(sector: %d)", mspm0_info->name, addr, csa);
+				return retval;
+			}
+			target_write_u32(target, FCTL_REG_CMDTYPE,
+					(FCTL_CMDTYPE_COMMAND_ERASE | FCTL_CMDTYPE_SIZE_SECTOR));
+			target_write_u32(target, FCTL_REG_CMDADDR, addr);
+			target_write_u32(target, FCTL_REG_CMDEXEC, FCTL_CMDEXEC_VAL_EXECUTE);
+			retval = msmp0_fctl_wait_cmd_ok(bank);
+			if (retval) {
+				LOG_ERROR("%s: Failed Erasing at address 0x%08" PRIx32
+					"(sector: %d)", mspm0_info->name, addr, csa);
+				return retval;
+			}
 		}
+	} else { //single bank device
+		target_write_u32(target, FCTL_REG_CMDWEPROTNM, 0xFFFFFFFF);
+		target_write_u32(target, FCTL_REG_CMDWEPROTA, 0x00000000);
+		target_write_u32(target, FCTL_REG_CMDWEPROTB, 0x00000000);
 		target_write_u32(target, FCTL_REG_CMDTYPE,
-				 (FCTL_CMDTYPE_COMMAND_ERASE | FCTL_CMDTYPE_SIZE_SECTOR));
-		target_write_u32(target, FCTL_REG_CMDADDR, addr);
+				 (FCTL_CMDTYPE_COMMAND_ERASE | FCTL_CMDTYPE_SIZE_BANK));
+		target_write_u32(target, FCTL_REG_CMDADDR, 0x00000000);
 		target_write_u32(target, FCTL_REG_CMDEXEC, FCTL_CMDEXEC_VAL_EXECUTE);
 		retval = msmp0_fctl_wait_cmd_ok(bank);
 		if (retval) {
-			LOG_ERROR("%s: Failed Erasing at address 0x%08" PRIx32
-				  "(sector: %d)", mspm0_info->name, addr, csa);
+			LOG_ERROR("Mass erase failed");
 			return retval;
 		}
-		/*
-		 * TRM Says:
-		 * Note that the CMDWEPROTx registers are reset to a protected state
-		 * at the end of all program and erase operations.  These registers
-		 * must be re-configured by software before a new operation is
-		 * initiated
-		 * Let us just Dump the protection registers back to the system.
-		 * That way we retain the protection status as requested by the user
-		 */
-		for (i = 0; i < mspm0_info->protect_reg_count; i++) {
-			target_write_u32(target, mspm0_info->protect_reg_base + (i * 4),
-					 protect_reg_cache[i]);
-		}
+	}
+
+	/*
+		* TRM Says:
+		* Note that the CMDWEPROTx registers are reset to a protected state
+		* at the end of all program and erase operations.  These registers
+		* must be re-configured by software before a new operation is
+		* initiated
+		* Let us just Dump the protection registers back to the system.
+		* That way we retain the protection status as requested by the user
+		*/
+	for (i = 0; i < mspm0_info->protect_reg_count; i++) {
+		target_write_u32(target, mspm0_info->protect_reg_base + (i * 4),
+					protect_reg_cache[i]);
 	}
 
 	return ERROR_OK;
