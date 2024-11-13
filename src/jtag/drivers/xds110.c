@@ -1118,11 +1118,6 @@ static int xds110_swd_switch_seq(enum swd_special_seq seq)
 	bool success = false;
 	bool isDormant = false;
 
-	JTAG_TO_DORMANT,
-	SWD_TO_DORMANT,
-	DORMANT_TO_SWD,
-	DORMANT_TO_JTAG,
-
 	switch (seq) {
 	case LINE_RESET:
 		LOG_ERROR("Sequence SWD line reset (%d) not supported", seq);
