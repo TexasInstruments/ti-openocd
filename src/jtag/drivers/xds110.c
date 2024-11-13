@@ -166,11 +166,16 @@
 #define OCD_DAP_REQUEST  0x3a /* Handle block of DAP requests */
 #define OCD_SCAN_REQUEST 0x3b /* Handle block of JTAG scan requests */
 #define OCD_PATHMOVE     0x3c /* Handle PATHMOVE to navigate JTAG states */
+#define XDS_SET_PROPERTY 0x49 /* Set XDS110 property */
 
 #define CMD_IR_SCAN      1
 #define CMD_DR_SCAN      2
 #define CMD_RUNTEST      3
 #define CMD_STABLECLOCKS 4
+
+#define XDS_PROPERTY_ID_SWJ_DP_DEFAULT_MODE	0
+#define SWJ_DP_DEFAULT_TO_JTAG    0
+#define SWJ_DP_DEFAULT_TO_DORMANT 1
 
 /* Array to convert from OpenOCD tap_state_t to XDS JTAG state */
 static const uint32_t xds_jtag_state[] = {
@@ -1076,6 +1081,25 @@ static bool ocd_pathmove(uint32_t num_states, uint8_t *path)
 	return success;
 }
 
+static bool xds_set_property(uint32_t id, uint32_t mode)
+{
+	uint8_t *id_pntr = &xds110.write_payload[XDS_OUT_LEN + 0]; /* 32-bits */
+	uint8_t *mode_pntr = &xds110.write_payload[XDS_OUT_LEN + 4]; /* 32-bits */
+
+	bool success;
+
+	xds110.write_payload[0] = XDS_SET_PROPERTY;
+
+	xds110_set_u32(id_pntr, id);
+	xds110_set_u32(mode_pntr, mode);
+
+	success = xds_execute(XDS_OUT_LEN + 8, XDS_IN_LEN, DEFAULT_ATTEMPTS,
+				DEFAULT_TIMEOUT);
+
+	return success;
+}
+
+
 /***************************************************************************
  *   swd driver interface                                                  *
  *                                                                         *
@@ -1091,19 +1115,31 @@ static int xds110_swd_init(void)
 static int xds110_swd_switch_seq(enum swd_special_seq seq)
 {
 	uint32_t idcode;
-	bool success;
+	bool success = false;
+	bool isDormant = false;
+
+	JTAG_TO_DORMANT,
+	SWD_TO_DORMANT,
+	DORMANT_TO_SWD,
+	DORMANT_TO_JTAG,
 
 	switch (seq) {
 	case LINE_RESET:
 		LOG_ERROR("Sequence SWD line reset (%d) not supported", seq);
 		return ERROR_FAIL;
+	case DORMANT_TO_SWD:
 	case JTAG_TO_SWD:
-		LOG_DEBUG("JTAG-to-SWD");
+		isDormant = (seq == DORMANT_TO_SWD);
+		LOG_DEBUG(isDormant ? "DORMANT-to-SWD" : "JTAG-to-SWD");
 		xds110.is_swd_mode = false;
 		xds110.is_cmapi_connected = false;
 		xds110.is_cmapi_acquired = false;
+		success = xds_set_property(XDS_PROPERTY_ID_SWJ_DP_DEFAULT_MODE,
+			isDormant ? SWJ_DP_DEFAULT_TO_DORMANT : SWJ_DP_DEFAULT_TO_JTAG );
 		/* Run sequence to put target in SWD mode */
-		success = swd_connect();
+		if (success) {
+			success = swd_connect();
+		}
 		/* Re-initialize CMAPI API for DAP access */
 		if (success) {
 			xds110.is_swd_mode = true;
@@ -1114,14 +1150,16 @@ static int xds110_swd_switch_seq(enum swd_special_seq seq)
 			}
 		}
 		break;
+	case SWD_TO_DORMANT:
 	case SWD_TO_JTAG:
-		LOG_DEBUG("SWD-to-JTAG");
+		isDormant = (seq == SWD_TO_DORMANT);
+		LOG_DEBUG( isDormant ? "SWD-to-DORMANT" : "SWD-to-JTAG");
 		xds110.is_swd_mode = false;
 		xds110.is_cmapi_connected = false;
 		xds110.is_cmapi_acquired = false;
 		/* Run sequence to put target in JTAG mode */
 		success = swd_disconnect();
-		if (success) {
+		if (success && !isDormant) {
 			/* Re-initialize JTAG interface */
 			success = cjtag_connect(MODE_JTAG);
 		}
