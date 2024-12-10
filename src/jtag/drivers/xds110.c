@@ -642,8 +642,13 @@ static bool xds_execute(uint32_t out_length, uint32_t in_length,
 				error = (int)xds110_get_u32(&xds110.read_payload[0]);
 				done = true;
 				if (error != SC_ERR_NONE)
+				{
 					LOG_DEBUG("XDS110: command 0x%02x returned error %d",
 						xds110.write_payload[0], error);
+				} else {
+					LOG_DEBUG("XDS110: command 0x%02x - Success");
+
+				}
 			}
 		}
 	}
