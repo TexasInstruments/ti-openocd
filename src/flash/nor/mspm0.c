@@ -837,7 +837,7 @@ static int mspm0_erase(struct flash_bank *bank, unsigned int first, unsigned int
 
 	if(mspm0_info->main_flash_num_banks > 1){ //dual bank device
 		for (uint32_t csa = first; csa < last; csa++) {
-			
+
 			uint32_t addr = csa * mspm0_info->sector_size;
 			retval = mspm0_fctl_unprotect_sector(bank, addr);
 			if (retval) {
