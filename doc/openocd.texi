@@ -2569,6 +2569,18 @@ In most cases need not to be specified and interfaces are searched by
 interface string or for user class interface.
 @end deffn
 
+@deffn {Command} {cmsis-dap quirk} [@option{enable}|@option{disable}]
+Enables or disables the following workarounds of known CMSIS-DAP adapter
+quirks:
+@itemize @minus
+@item disconnect and re-connect before sending a switch sequence
+@item packets pipelining is suppressed, only one packet at a time is
+submitted to the adapter
+@end itemize
+The quirk workarounds are disabled by default.
+The command without a parameter displays current setting.
+@end deffn
+
 @deffn {Command} {cmsis-dap info}
 Display various device information, like hardware version, firmware version, current bus status.
 @end deffn
@@ -2810,9 +2822,9 @@ If not specified, default 0xFFFF is used.
 @end deffn
 
 @deffn {Interface Driver} {remote_bitbang}
-Drive JTAG from a remote process. This sets up a UNIX or TCP socket connection
-with a remote process and sends ASCII encoded bitbang requests to that process
-instead of directly driving JTAG.
+Drive JTAG and SWD from a remote process. This sets up a UNIX or TCP socket
+connection with a remote process and sends ASCII encoded bitbang requests to
+that process instead of directly driving JTAG and SWD.
 
 The remote_bitbang driver is useful for debugging software running on
 processors which are being simulated.
@@ -2827,6 +2839,15 @@ Specifies the hostname of the remote process to connect to using TCP, or the
 name of the UNIX socket to use if remote_bitbang port is 0.
 @end deffn
 
+@deffn {Config Command} {remote_bitbang use_remote_sleep} (on|off)
+If this option is enabled, delays will not be executed locally but instead
+forwarded to the remote host. This is useful if the remote host performs its
+own request queuing rather than executing requests immediately.
+
+This is disabled by default. This option must only be enabled if the given
+remote_bitbang host supports receiving the delay information.
+@end deffn
+
 For example, to connect remotely via TCP to the host foobar you might have
 something like:
 
@@ -2834,6 +2855,15 @@ something like:
 adapter driver remote_bitbang
 remote_bitbang port 3335
 remote_bitbang host foobar
+@end example
+
+And if you also wished to enable remote sleeping:
+
+@example
+adapter driver remote_bitbang
+remote_bitbang port 3335
+remote_bitbang host foobar
+remote_bitbang use_remote_sleep on
 @end example
 
 To connect to another process running locally via UNIX sockets with socket
@@ -3414,6 +3444,15 @@ Currently valid @var{variant} values include:
 @deffn {Config Command} {openjtag device_desc} string
 The USB device description string of the adapter.
 This value is only used with the standard variant.
+@end deffn
+
+@deffn {Config Command} {openjtag vid_pid} vid pid
+The USB vendor ID and product ID of the adapter. If not specified, default
+0x0403:0x6001 is used.
+This value is only used with the standard variant.
+@example
+openjtag vid_pid 0x403 0x6014
+@end example
 @end deffn
 @end deffn
 
@@ -4394,6 +4433,10 @@ there seems to be no problems with JTAG scan chain operations.
 register during initial examination and when checking the sticky error bit.
 This bit is normally checked after setting the CSYSPWRUPREQ bit, but some
 devices do not set the ack bit until sometime later.
+@item @code{-ir-bypass} @var{NUMBER}
+@*Vendor specific bypass instruction, required by some hierarchical JTAG
+routers where the normal BYPASS instruction bypasses the whole router and
+a vendor specific bypass instruction is required to access child nodes.
 @end itemize
 @end deffn
 
@@ -6733,6 +6776,24 @@ Note that in order for this command to take effect, the target needs to be reset
 supported.}
 @end deffn
 
+@deffn {Flash Driver} {eneispif}
+All versions of the KB1200 microcontrollers from ENE include internal
+flash. The eneispif flash driver supports the KB1200 family of devices. The driver
+automatically recognizes the specific version's flash parameters and
+autoconfigures itself. The flash bank starts at address 0x60000000. An optional additional
+parameter sets the address of eneispif controller, with the default address is 0x50101000.
+
+@example
+
+flash bank $_FLASHNAME eneispif 0x60000000 0 0 0 $_TARGETNAME \
+           0x50101000
+
+# Address defaults to 0x50101000
+flash bank $_FLASHNAME eneispif 0x60000000 0 0 0 $_TARGETNAME
+
+@end example
+@end deffn
+
 @deffn {Flash Driver} {esirisc}
 Members of the eSi-RISC family may optionally include internal flash programmed
 via the eSi-TSMC Flash interface. Additional parameters are required to
@@ -6790,16 +6851,23 @@ nor is Chip Erase (only Sector Erase is implemented).}
 
 @deffn {Flash Driver} {kinetis}
 @cindex kinetis
-Kx, KLx, KVx and KE1x members of the Kinetis microcontroller family
-from NXP (former Freescale) include
-internal flash and use ARM Cortex-M0+ or M4 cores. The driver automatically
+Several microcontrollers from NXP (former Freescale), including
+Kx, KLx, KVx and KE1x members of the Kinetis family,
+and S32K11x/S32K14x microcontrollers, include
+internal flash and use ARM Cortex-M0+ or M4 cores.
+Kinetis and S32K1 families use incompatible
+identification registers, so the driver assumes Kinetis and requires
+a driver option to indicate S32K1 is to be used.
+Within the familiy, the driver automatically
 recognizes flash size and a number of flash banks (1-4) using the chip
 identification register, and autoconfigures itself.
 Use kinetis_ke driver for KE0x and KEAx devices.
 
 The @var{kinetis} driver defines option:
 @itemize
-@item -sim-base @var{addr} ... base of System Integration Module where chip identification resides. Driver tries two known locations if option is omitted.
+@item -s32k select S32K11x/S32K14x microcontroller flash support.
+
+@item -sim-base @var{addr} ... base of System Integration Module where chip identification resides. Driver tries known locations if option is omitted.
 @end itemize
 
 @example
@@ -6848,6 +6916,7 @@ command completes.
 
 @deffn {Command} {kinetis nvm_partition}
 For FlexNVM devices only (KxxDX and KxxFX).
+Not supported (yet) on S32K1 devices.
 Command shows or sets data flash or EEPROM backup size in kilobytes,
 sets two EEPROM blocks sizes in bytes and enables/disables loading
 of EEPROM contents to FlexRAM during reset.
@@ -7170,6 +7239,19 @@ msp432 bsl lock
 @end deffn
 @end deffn
 
+@deffn {Flash Driver} {mspm0}
+All Arm Cortex-M0+ MSPM microcontroller versions from Texas
+Instruments include internal flash. The mspm0 flash driver
+automatically recognizes the specific version's flash parameters and
+autoconfigures itself. The main program flash starts at address 0x0.
+Non-main flash starts at 0x41c00000. If present on the device, the
+optional region called "Data" starts at 0x41d00000.
+
+@example
+flash bank $_FLASHNAME mspm0 0 0 0 0 $_TARGETNAME
+@end example
+@end deffn
+
 @deffn {Flash Driver} {niietcm4}
 This drivers handles the integrated NOR flash on NIIET Cortex-M4
 based controllers. Flash size and sector layout are auto-configured by the driver.
@@ -7266,10 +7348,6 @@ Erases the contents of the code memory and user information
 configuration registers as well. It must be noted that this command
 works only for chips that do not have factory pre-programmed region 0
 code.
-@end deffn
-
-@deffn {Command} {nrf5 info}
-Decodes and shows information from FICR and UICR registers.
 @end deffn
 
 @end deffn
@@ -7673,12 +7751,10 @@ applied to all of them.
 @end deffn
 
 @deffn {Flash Driver} {stm32f1x}
-All members of the STM32F0, STM32F1 and STM32F3 microcontroller families
-from STMicroelectronics and all members of the GD32F1x0, GD32F3x0 and GD32E23x microcontroller
-families from GigaDevice include internal flash and use ARM Cortex-M0/M3/M4/M23 cores.
-The driver also works with GD32VF103 powered by RISC-V core.
-The driver automatically recognizes a number of these chips using
-the chip identification register, and autoconfigures itself.
+This driver supports the STM32F0, STM32F1 and STM32F3 microcontroller series from STMicroelectronics.
+The driver is also compatible with the GD32F1, GD32VF103 (RISC-V core), GD32F3 and GD32E23 microcontroller series from GigaDevice.
+The driver also supports the APM32F0 and APM32F1 series from Geehy Semiconductor.
+The driver automatically recognizes a number of these chips using the chip identification register, and autoconfigures itself.
 
 @example
 flash bank $_FLASHNAME stm32f1x 0 0 0 0 $_TARGETNAME
@@ -7739,6 +7815,7 @@ The @var{num} parameter is a value shown by @command{flash banks}.
 @deffn {Flash Driver} {stm32f2x}
 All members of the STM32F2, STM32F4 and STM32F7 microcontroller families from STMicroelectronics
 include internal flash and use ARM Cortex-M3/M4/M7 cores.
+The driver also works for the APM32F4 series from Geehy Semiconductor.
 The driver automatically recognizes a number of these chips using
 the chip identification register, and autoconfigures itself.
 
@@ -8985,9 +9062,10 @@ echo "Downloading kernel -- please wait"
 @end example
 @end deffn
 
-@deffn {Command} {log_output} [filename | "default"]
-Redirect logging to @var{filename} or set it back to default output;
-the default log output channel is stderr.
+@deffn {Command} {log_output} [filename | 'default']
+Redirect logging to @var{filename}. If used without an argument or
+@var{filename} is set to 'default' log output channel is set to
+stderr.
 @end deffn
 
 @deffn {Command} {add_script_search_dir} [directory]
@@ -9124,6 +9202,18 @@ memory at address 0x20000000:
 @example
 read_memory 0x20000000 32 2
 @end example
+@end deffn
+
+@deffn {Command} {debug_reason}
+Displays the current debug reason:
+@code{debug-request},
+@code{breakpoint},
+@code{watchpoint},
+@code{watchpoint-and-breakpoint},
+@code{single-step},
+@code{target-not-halted},
+@code{program-exit},
+@code{exception-catch} or @code{undefined}.
 @end deffn
 
 @deffn {Command} {halt} [ms]
@@ -9295,7 +9385,7 @@ Loads an image stored in memory by @command{fast_load_image} to the
 current target. Must be preceded by fast_load_image.
 @end deffn
 
-@deffn {Command} {fast_load_image} filename address [@option{bin}|@option{ihex}|@option{elf}|@option{s19}]
+@deffn {Command} {fast_load_image} filename [address [@option{bin}|@option{ihex}|@option{elf}|@option{s19} [@option{min_addr} [@option{max_length}]]]]]]
 Normally you should be using @command{load_image} or GDB load. However, for
 testing purposes or when I/O overhead is significant(OpenOCD running on an embedded
 host), storing the image in memory and uploading the image to the target
@@ -9306,8 +9396,10 @@ target programming performance as I/O and target programming can easily be profi
 separately.
 @end deffn
 
-@deffn {Command} {load_image} filename address [[@option{bin}|@option{ihex}|@option{elf}|@option{s19}] @option{min_addr} @option{max_length}]
-Load image from file @var{filename} to target memory offset by @var{address} from its load address.
+@deffn {Command} {load_image} filename [address [@option{bin}|@option{ihex}|@option{elf}|@option{s19} [@option{min_addr} [@option{max_length}]]]]
+Load image from file @var{filename} to target memory.
+If an @var{address} is specified, it is used as an offset to the file format
+defined addressing (e.g. @option{bin} file is loaded at that address).
 The file format may optionally be specified
 (@option{bin}, @option{ihex}, @option{elf}, or @option{s19}).
 In addition the following arguments may be specified:
@@ -9331,15 +9423,21 @@ The file format may optionally be specified
 (@option{bin}, @option{ihex}, or @option{elf})
 @end deffn
 
-@deffn {Command} {verify_image} filename address [@option{bin}|@option{ihex}|@option{elf}]
-Verify @var{filename} against target memory starting at @var{address}.
+@deffn {Command} {verify_image} filename [address [@option{bin}|@option{ihex}|@option{elf}]]
+Verify @var{filename} against target memory.
+If an @var{address} is specified, it is used as an offset to the file format
+defined addressing (e.g. @option{bin} file is compared against memory starting
+at that address).
 The file format may optionally be specified
 (@option{bin}, @option{ihex}, or @option{elf})
 This will first attempt a comparison using a CRC checksum, if this fails it will try a binary compare.
 @end deffn
 
-@deffn {Command} {verify_image_checksum} filename address [@option{bin}|@option{ihex}|@option{elf}]
-Verify @var{filename} against target memory starting at @var{address}.
+@deffn {Command} {verify_image_checksum} filename [address [@option{bin}|@option{ihex}|@option{elf}]]
+Verify @var{filename} against target memory.
+If an @var{address} is specified, it is used as an offset to the file format
+defined addressing (e.g. @option{bin} file is compared against memory starting
+at that address).
 The file format may optionally be specified
 (@option{bin}, @option{ihex}, or @option{elf})
 This perform a comparison using a CRC checksum only
@@ -9374,7 +9472,7 @@ Remove the breakpoint at @var{address} or all breakpoints.
 Remove data watchpoint on @var{address} or all watchpoints.
 @end deffn
 
-@deffn {Command} {wp} [address len [(@option{r}|@option{w}|@option{a}) [value [mask]]]]
+@deffn {Command} {wp} [address length [(@option{r}|@option{w}|@option{a}) [value [mask]]]]
 With no parameters, lists all active watchpoints.
 Else sets a data watchpoint on data from @var{address} for @var{length} bytes.
 The watch point is an "access" watchpoint unless
@@ -9480,7 +9578,7 @@ TCP/IP port 9090.
 @deffn {Command} {profile} seconds filename [start end]
 Profiling samples the CPU's program counter as quickly as possible,
 which is useful for non-intrusive stochastic profiling.
-Saves up to 10000 samples in @file{filename} using ``gmon.out''
+Saves up to 1000000 samples in @file{filename} using ``gmon.out''
 format. Optional @option{start} and @option{end} parameters allow to
 limit the address range.
 @end deffn
@@ -10948,6 +11046,78 @@ addreg rtest 0x1234 org.gnu.gdb.or1k.group0 system
 
 @end deffn
 
+@section MIPS Architecture
+@cindex microMIPS
+@cindex MIPS32
+@cindex MIPS64
+
+@uref{http://mips.com/, MIPS} is a simple, streamlined, highly scalable RISC
+architecture. The architecture is evolving over time, from MIPS I~V to
+MIPS release 1~6 iterations, the architecture is now able to handle various tasks
+with different ASEs, including SIMD(MSA), DSP, VZ, MT and more.
+MIPS32 supports 32-bit programs while MIPS64 can support both 32-bit and 64-bit programs.
+
+@subsection MIPS Terminology
+
+The term ASE means Application-Specific Extension, ASEs provide features that
+improve the efficiency and performance of certain workloads, such as
+digital signal processing(DSP), Virtualization(VZ), Multi-Threading(MT),
+SIMD(MSA) and more.
+
+MIPS Cores use Coprocessors(CPx) to configure their behaviour or to let software
+know the capabilities of current CPU, the main Coprocessor is CP0, containing 32
+registers with a maximum select number of 7.
+
+@subsection MIPS FPU & Vector Registers
+
+MIPS processors does not all comes with FPU co-processor, and when it does, the FPU
+appears as Coprocessor 1 whereas the Coprocessor 0 is for the main processor.
+
+Most of MIPS FPUs are 64 bits, IEEE 754 standard, and they provides both 32-bit
+single precision and 64-bit double precision calculations. Fixed point format
+calculations are also provided with both 32 and 64-bit modes.
+
+The MIPS SIMD Architecture(MSA) operates on 32 128-bit wide vector registers.
+If both MSA and the scalar floating-point unit (FPU) are present, the 128-bit MSA
+vector registers extend and share the 64-bit FPU registers. MSA and FPU can not be
+both present, unless the FPU has 64-bit floating-point register.
+
+@subsection MIPS Configuration Commands
+
+@deffn {Command} {mips32 cpuinfo}
+Displays detailed information about current CPU core. This includes core type,
+vendor, instruction set, cache size, and other relevant details.
+@end deffn
+
+@deffn {Config Command} {mips32 scan_delay} [nanoseconds]
+Display or set scan delay in nano seconds. A value below 2_000_000 will set the
+scan delay into legacy mode.
+@end deffn
+
+@deffn {Config Command} {mips32 cp0} [[reg_name|regnum select] [value]]
+Displays or sets coprocessor 0 register by register number and select or their name.
+This command shows all available cp0 register if no arguments are provided.
+
+For common MIPS Coprocessor 0 registers, you can find the definitions of them
+on MIPS Privileged Resource Architecture Documents(MIPS Document MD00090).
+
+For core specific cp0 registers, you can find the definitions of them on Core
+Specific Software User's Manual(SUM), for example, MIPS M5150 Software User Manual
+(MD00980).
+@end deffn
+
+@deffn {Command} {mips32 ejtag_reg}
+Reads EJTAG Registers for inspection.
+
+EJTAG Register Specification could be found in MIPS Document MD00047F, for
+core specific EJTAG Register definition, please check Core Specific SUM manual.
+@end deffn
+
+@deffn {Command} {mips32 dsp} [[register_name] [value]]
+Displays all DSP registers' contents or get/set value by register name. Will display
+an error if current CPU does not support DSP.
+@end deffn
+
 @section RISC-V Architecture
 
 @uref{http://riscv.org/, RISC-V} is a free and open ISA. OpenOCD supports JTAG
@@ -11484,13 +11654,14 @@ This feature is not well implemented and tested yet.
 @end deffn
 
 @deffn {Command} {xtensa exe} <ascii-encoded hexadecimal instruction bytes>
-Execute arbitrary instruction(s) provided as an ascii string.  The string represents an integer
-number of instruction bytes, thus its length must be even.
+Execute one arbitrary instruction provided as an ascii string. The string represents an integer
+number of instruction bytes, thus its length must be even. The instruction can be of any width
+that is valid for the Xtensa core configuration.
 @end deffn
 
 @deffn {Command} {xtensa dm} (address) [value]
-Read or write Xtensa Debug Module (DM) registers.  @var{address} is required for both reads
-and writes and is a 4-byte-aligned value typically between 0 and 0x3ffc.  @var{value} is specified
+Read or write Xtensa Debug Module (DM) registers. @var{address} is required for both reads
+and writes and is a 4-byte-aligned value typically between 0 and 0x3ffc. @var{value} is specified
 only for write accesses.
 @end deffn
 
@@ -11988,58 +12159,101 @@ waveform generator. These are synthesize-able hardware descriptions of
 logic circuits in addition to software for control, visualization and further analysis.
 In a session using JTAG for its transport protocol, OpenOCD supports the function
 of a JTAG-Host. The JTAG-Host is needed to connect the circuit over JTAG to the
-control-software. For more details see @url{http://ipdbg.org}.
+control-software. The JTAG-Hub is the circuit which transfers the data from JTAG to the
+different tools connected to the Hub. Hub implementations for most major FPGA vendors/families
+are provided. For more details see @url{http://ipdbg.org}.
 
-@deffn {Command} {ipdbg} [@option{-start|-stop}] @option{-tap @var{tapname}} @option{-hub @var{ir_value} [@var{dr_length}]} [@option{-vir [@var{vir_value} [@var{length} [@var{instr_code}]]]}] [@option{-port @var{number}}] [@option{-tool @var{number}}]
-Starts or stops a IPDBG JTAG-Host server. Arguments can be specified in any order.
+@deffn {Command} {ipdbg create-hub} @var{hub_name} @option{-tap @var{tapname}} @option{-ir @var{ir_value} [@var{dr_length}]} [@option{-vir [@var{vir_value} [@var{length} [@var{instr_code}]]]}]
+@deffnx {Command} {ipdbg create-hub} @var{hub_name} @option{-pld @var{pld_name} [@var{user}]} [@option{-vir [@var{vir_value} [@var{length} [@var{instr_code}]]]}]
+Creates a IPDBG JTAG Hub. The created hub is later used to start, stop and configure IPDBG JTAG Host servers.
+The first argument @var{hub_name} is the name of the created hub. It can be used later as a reference.
+
+The pld drivers are able to provide the tap and ir_value for the IPDBG JTAG-Host server. This will be used with the second variant with option @option{-pld}.
 
 Command options:
 @itemize @bullet
-@item @option{-start|-stop} starts or stops a IPDBG JTAG-Host server (default: start).
+@item @var{hub_name} the name of the IPDBG hub.
+This name is also used to create the object's command, referred to here
+as @command{$hub_name}, and in other places where the Hub needs to be identified.
+
 @item @option{-tap @var{tapname}} targeting the TAP @var{tapname}.
-@item @option{-hub @var{ir_value}} states that the JTAG hub is
-reachable with dr-scans while the JTAG instruction register has the value @var{ir_value}.
-@item @option{-port @var{number}} tcp port number where the JTAG-Host will listen. The default is 4242 which is used when the option is not given.
-@item @option{-tool @var{number}} number of the tool/feature. These corresponds to the ports "data_(up/down)_(0..6)" at the JtagHub. The default is 1 which is used when the option is not given.
-@item @option{-vir [@var{vir_value} [@var{length} [@var{instr_code}]]]} On some devices, the user data-register is reachable if there is a
-specific value in a second dr. This second dr is called vir (virtual ir). With this parameter given, the IPDBG satisfies this condition prior an
+
+@item @option{-ir @var{ir_value}} states that the JTAG hub is
+reachable with dr-scans while the JTAG instruction register has the value @var{ir_value}. Also known as  @verb{|USERx|} instructions.
+The optional @var{dr_length} is the length of the dr.
+Current JTAG-Hub implementation only supports dr_length=13, which is also the default value.
+
+@item @option{-vir [@var{vir_value} [@var{length} [@var{instr_code}]]]} To support more Hubs than USER registers in a single FPGA it is possible to
+use a mechanism known as virtual-ir where the user data-register is reachable if there is a specific value in a second dr.
+This second dr is called vir (virtual ir). With this parameter given, the IPDBG satisfies this condition prior an
 access to the IPDBG-Hub. The value shifted into the vir is given by the first parameter @var{vir_value} (default: 0x11). The second
 parameter @var{length} is the length of the vir data register (default: 5). With the @var{instr_code} (default: 0x00e) parameter the ir value to
 shift data through vir can be configured.
+
+@item @option{-pld @var{pld_name} [@var{user}]} The defined driver for the pld @var{pld_name} is used to get the tap and user instruction.
+The pld devices names can be shown by the command @command{pld devices}. With [@var{user}] one can select a different @verb{|USERx|}-Instruction.
+If the IPDBG JTAG-Hub is used without modification the default value of 1 which selects the first @verb{|USERx|} instruction is adequate.
+The @verb{|USERx|} instructions are vendor specific and don't change between families of the same vendor.
+So if there's a pld driver for your vendor it should work with your FPGA even when the driver is not compatible with your device for the remaining features.
+If your device/vendor is not supported you have to use the first variant.
+
+@end itemize
+
+@end deffn
+
+@deffn {Command} {$hub_name ipdbg start} @option{-tool @var{number}} @option{-port @var{number}}
+Starts a IPDBG JTAG-Host server. The remaining arguments can be specified in any order.
+
+Command options:
+@itemize @bullet
+@item @option{-port @var{number}} tcp port number where the JTAG-Host will listen. The default is 4242 which is used when the option is not given.
+@item @option{-tool @var{number}} number of the tool/feature. These corresponds to the ports "data_(up/down)_(0..6)" at the JtagHub. The default is 1 which is used when the option is not given.
 @end itemize
 @end deffn
-or
-@deffn {Command} {ipdbg} [@option{-start|-stop}] @option{-pld @var{name} [@var{user}]} [@option{-port @var{number}}] [@option{-tool @var{number}}]
-Also starts or stops a IPDBG JTAG-Host server. The pld drivers are able to provide the tap and hub/IR for the IPDBG JTAG-Host server.
-With the @option{-pld @var{name} [@var{user}]} the information from the pld-driver is used and the options @option{-tap} and @option{-hub} are not required.
-The defined driver for the pld @var{name} gets selected. (The pld devices names can be shown by the command @command{pld devices}).
 
-The @verb{|USERx|} instructions are vendor specific and don't change between families of the same vendor.
-So if there's a pld driver for your vendor it should work with your FPGA even when the driver is not compatible with your device for the remaining features. If your device/vendor is not supported you have to use the previous command.
-
-With [@var{user}] one can select a different @verb{|USERx|}-Instruction. If the IPDBG JTAG-Hub is used without modification the default value of 1 which selects the first @verb{|USERx|} instruction is adequate.
-
-The remaining options are described in the previous command.
+@deffn {Command} {$hub_name ipdbg stop} @option{-tool @var{number}}
+Stops a IPDBG JTAG-Host server.
+Command options:
+@itemize @bullet
+@item @option{-tool @var{number}} number of the tool/feature. These corresponds to the ports "data_(up/down)_(0..6)" at the JtagHub. The default is 1 which is used when the option is not given.
+@end itemize
 @end deffn
 
 Examples:
 @example
-ipdbg -start -tap xc6s.tap -hub 0x02 -port 4242 -tool 4
+ipdbg create-hub xc6s.ipdbghub -tap xc6s.tap -hub 0x02
+xc6s.ipdbghub ipdbg start -port 4242 -tool 4
 @end example
-Starts a server listening on tcp-port 4242 which connects to tool 4.
+Creates a IPDBG Hub and starts a server listening on tcp-port 4242 which connects to tool 4.
 The connection is through the TAP of a Xilinx Spartan 6 on USER1 instruction (tested with a papillion pro board).
 
 @example
-ipdbg -start -tap 10m50.tap -hub 0x00C -vir -port 60000 -tool 1
+ipdbg create-hub max10m50.ipdbghub -tap max10m50.tap -hub 0x00C -vir
+max10m50.ipdbghub ipdbg start -tool 1 -port 60000
 @end example
 Starts a server listening on tcp-port 60000 which connects to tool 1 (data_up_1/data_down_1).
 The connection is through the TAP of a Intel MAX10 virtual jtag component (sld_instance_index is 0; sld_ir_width is smaller than 5).
 
 @example
-ipdbg -start -pld xc7.pld -port 5555 -tool 0
+ipdbg create-hub xc7.ipdbghub -pld xc7.pld
+xc7.ipdbghub ipdbg start -port 5555 -tool 0
 @end example
 Starts a server listening on tcp-port 5555 which connects to tool 0 (data_up_0/data_down_0).
 The TAP and ir value used to reach the JTAG Hub is given by the pld driver.
+
+@deffn {Command} {$hub_name queuing} @option{-size @var{size}}
+Configure the queuing between IPDBG JTAG-Host and Hub.
+The maximum possible queue size is 1024 which is also the default.
+
+@itemize @bullet
+@item @option{-size @var{size}} max number of transfers in the queue.
+@end itemize
+@end deffn
+
+@example
+bitbang.ibdbghub queuing -size 32
+@end example
+Send a maximum of 32 transfers to the queue before executing them.
 
 
 @node Utility Commands

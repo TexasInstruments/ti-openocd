@@ -56,10 +56,6 @@ static int target_read_buffer_default(struct target *target, target_addr_t addre
 		uint32_t count, uint8_t *buffer);
 static int target_write_buffer_default(struct target *target, target_addr_t address,
 		uint32_t count, const uint8_t *buffer);
-static int target_array2mem(Jim_Interp *interp, struct target *target,
-		int argc, Jim_Obj * const *argv);
-static int target_mem2array(Jim_Interp *interp, struct target *target,
-		int argc, Jim_Obj * const *argv);
 static int target_register_user_commands(struct command_context *cmd_ctx);
 static int target_get_gdb_fileio_info_default(struct target *target,
 		struct gdb_fileio_info *fileio_info);
@@ -248,7 +244,7 @@ static const struct nvp nvp_reset_modes[] = {
 	{ .name = NULL,      .value = -1 },
 };
 
-const char *debug_reason_name(struct target *t)
+const char *debug_reason_name(const struct target *t)
 {
 	const char *cp;
 
@@ -261,7 +257,7 @@ const char *debug_reason_name(struct target *t)
 	return cp;
 }
 
-const char *target_state_name(struct target *t)
+const char *target_state_name(const struct target *t)
 {
 	const char *cp;
 	cp = nvp_value2name(nvp_target_state, t->state)->name;
@@ -675,10 +671,14 @@ static int default_check_reset(struct target *target)
  * Keep in sync */
 int target_examine_one(struct target *target)
 {
+	LOG_TARGET_DEBUG(target, "Examination started");
+
 	target_call_event_callbacks(target, TARGET_EVENT_EXAMINE_START);
 
 	int retval = target->type->examine(target);
 	if (retval != ERROR_OK) {
+		LOG_TARGET_ERROR(target, "Examination failed");
+		LOG_TARGET_DEBUG(target, "examine() returned error code %d", retval);
 		target_reset_examined(target);
 		target_call_event_callbacks(target, TARGET_EVENT_EXAMINE_FAIL);
 		return retval;
@@ -687,6 +687,7 @@ int target_examine_one(struct target *target)
 	target_set_examined(target);
 	target_call_event_callbacks(target, TARGET_EVENT_EXAMINE_END);
 
+	LOG_TARGET_INFO(target, "Examination succeed");
 	return ERROR_OK;
 }
 
@@ -732,7 +733,7 @@ int target_examine(void)
 	return retval;
 }
 
-const char *target_type_name(struct target *target)
+const char *target_type_name(const struct target *target)
 {
 	return target->type->name;
 }
@@ -1199,6 +1200,10 @@ int target_run_read_async_algorithm(struct target *target,
 		/* Avoid GDB timeouts */
 		keep_alive();
 
+		if (openocd_is_shutdown_pending()) {
+			retval = ERROR_SERVER_INTERRUPTED;
+			break;
+		}
 	}
 
 	if (retval != ERROR_OK) {
@@ -1353,7 +1358,7 @@ int target_hit_watchpoint(struct target *target,
 	return target->type->hit_watchpoint(target, hit_watchpoint);
 }
 
-const char *target_get_gdb_arch(struct target *target)
+const char *target_get_gdb_arch(const struct target *target)
 {
 	if (!target->type->get_gdb_arch)
 		return NULL;
@@ -1393,7 +1398,7 @@ int target_get_gdb_reg_list_noread(struct target *target,
 	return target_get_gdb_reg_list(target, reg_list, reg_list_size, reg_class);
 }
 
-bool target_supports_gdb_connection(struct target *target)
+bool target_supports_gdb_connection(const struct target *target)
 {
 	/*
 	 * exclude all the targets that don't provide get_gdb_reg_list
@@ -3219,8 +3224,11 @@ int target_wait_state(struct target *target, enum target_state state, unsigned i
 				nvp_value2name(nvp_target_state, state)->name);
 		}
 
-		if (cur-then > 500)
+		if (cur - then > 500) {
 			keep_alive();
+			if (openocd_is_shutdown_pending())
+				return ERROR_SERVER_INTERRUPTED;
+		}
 
 		if ((cur-then) > ms) {
 			LOG_ERROR("timed out while waiting for target %s",
@@ -3502,6 +3510,11 @@ static int target_fill_mem(struct target *target,
 			break;
 		/* avoid GDB timeouts */
 		keep_alive();
+
+		if (openocd_is_shutdown_pending()) {
+			retval = ERROR_SERVER_INTERRUPTED;
+			break;
+		}
 	}
 	free(target_buf);
 
@@ -3844,6 +3857,12 @@ static COMMAND_HELPER(handle_verify_image_command_internal, enum verify_mode ver
 							}
 						}
 						keep_alive();
+						if (openocd_is_shutdown_pending()) {
+							retval = ERROR_SERVER_INTERRUPTED;
+							free(data);
+							free(buffer);
+							goto done;
+						}
 					}
 				}
 				free(data);
@@ -4293,7 +4312,7 @@ COMMAND_HANDLER(handle_profile_command)
 	if ((CMD_ARGC != 2) && (CMD_ARGC != 4))
 		return ERROR_COMMAND_SYNTAX_ERROR;
 
-	const uint32_t MAX_PROFILE_SAMPLE_NUM = 10000;
+	const uint32_t MAX_PROFILE_SAMPLE_NUM = 1000000;
 	uint32_t offset;
 	uint32_t num_of_samples;
 	int retval = ERROR_OK;
@@ -4372,192 +4391,6 @@ COMMAND_HANDLER(handle_profile_command)
 
 	free(samples);
 	return retval;
-}
-
-static int new_u64_array_element(Jim_Interp *interp, const char *varname, int idx, uint64_t val)
-{
-	char *namebuf;
-	Jim_Obj *obj_name, *obj_val;
-	int result;
-
-	namebuf = alloc_printf("%s(%d)", varname, idx);
-	if (!namebuf)
-		return JIM_ERR;
-
-	obj_name = Jim_NewStringObj(interp, namebuf, -1);
-	jim_wide wide_val = val;
-	obj_val = Jim_NewWideObj(interp, wide_val);
-	if (!obj_name || !obj_val) {
-		free(namebuf);
-		return JIM_ERR;
-	}
-
-	Jim_IncrRefCount(obj_name);
-	Jim_IncrRefCount(obj_val);
-	result = Jim_SetVariable(interp, obj_name, obj_val);
-	Jim_DecrRefCount(interp, obj_name);
-	Jim_DecrRefCount(interp, obj_val);
-	free(namebuf);
-	/* printf("%s(%d) <= 0%08x\n", varname, idx, val); */
-	return result;
-}
-
-static int target_mem2array(Jim_Interp *interp, struct target *target, int argc, Jim_Obj *const *argv)
-{
-	int e;
-
-	LOG_WARNING("DEPRECATED! use 'read_memory' not 'mem2array'");
-
-	/* argv[0] = name of array to receive the data
-	 * argv[1] = desired element width in bits
-	 * argv[2] = memory address
-	 * argv[3] = count of times to read
-	 * argv[4] = optional "phys"
-	 */
-	if (argc < 4 || argc > 5) {
-		Jim_WrongNumArgs(interp, 0, argv, "varname width addr nelems [phys]");
-		return JIM_ERR;
-	}
-
-	/* Arg 0: Name of the array variable */
-	const char *varname = Jim_GetString(argv[0], NULL);
-
-	/* Arg 1: Bit width of one element */
-	long l;
-	e = Jim_GetLong(interp, argv[1], &l);
-	if (e != JIM_OK)
-		return e;
-	const unsigned int width_bits = l;
-
-	if (width_bits != 8 &&
-			width_bits != 16 &&
-			width_bits != 32 &&
-			width_bits != 64) {
-		Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
-		Jim_AppendStrings(interp, Jim_GetResult(interp),
-				"Invalid width param. Must be one of: 8, 16, 32 or 64.", NULL);
-		return JIM_ERR;
-	}
-	const unsigned int width = width_bits / 8;
-
-	/* Arg 2: Memory address */
-	jim_wide wide_addr;
-	e = Jim_GetWide(interp, argv[2], &wide_addr);
-	if (e != JIM_OK)
-		return e;
-	target_addr_t addr = (target_addr_t)wide_addr;
-
-	/* Arg 3: Number of elements to read */
-	e = Jim_GetLong(interp, argv[3], &l);
-	if (e != JIM_OK)
-		return e;
-	size_t len = l;
-
-	/* Arg 4: phys */
-	bool is_phys = false;
-	if (argc > 4) {
-		int str_len = 0;
-		const char *phys = Jim_GetString(argv[4], &str_len);
-		if (!strncmp(phys, "phys", str_len))
-			is_phys = true;
-		else
-			return JIM_ERR;
-	}
-
-	/* Argument checks */
-	if (len == 0) {
-		Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
-		Jim_AppendStrings(interp, Jim_GetResult(interp), "mem2array: zero width read?", NULL);
-		return JIM_ERR;
-	}
-	if ((addr + (len * width)) < addr) {
-		Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
-		Jim_AppendStrings(interp, Jim_GetResult(interp), "mem2array: addr + len - wraps to zero?", NULL);
-		return JIM_ERR;
-	}
-	if (len > 65536) {
-		Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
-		Jim_AppendStrings(interp, Jim_GetResult(interp),
-				"mem2array: too large read request, exceeds 64K items", NULL);
-		return JIM_ERR;
-	}
-
-	if ((width == 1) ||
-		((width == 2) && ((addr & 1) == 0)) ||
-		((width == 4) && ((addr & 3) == 0)) ||
-		((width == 8) && ((addr & 7) == 0))) {
-		/* alignment correct */
-	} else {
-		char buf[100];
-		Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
-		sprintf(buf, "mem2array address: " TARGET_ADDR_FMT " is not aligned for %" PRIu32 " byte reads",
-				addr,
-				width);
-		Jim_AppendStrings(interp, Jim_GetResult(interp), buf, NULL);
-		return JIM_ERR;
-	}
-
-	/* Transfer loop */
-
-	/* index counter */
-	size_t idx = 0;
-
-	const size_t buffersize = 4096;
-	uint8_t *buffer = malloc(buffersize);
-	if (!buffer)
-		return JIM_ERR;
-
-	/* assume ok */
-	e = JIM_OK;
-	while (len) {
-		/* Slurp... in buffer size chunks */
-		const unsigned int max_chunk_len = buffersize / width;
-		const size_t chunk_len = MIN(len, max_chunk_len); /* in elements.. */
-
-		int retval;
-		if (is_phys)
-			retval = target_read_phys_memory(target, addr, width, chunk_len, buffer);
-		else
-			retval = target_read_memory(target, addr, width, chunk_len, buffer);
-		if (retval != ERROR_OK) {
-			/* BOO !*/
-			LOG_ERROR("mem2array: Read @ " TARGET_ADDR_FMT ", w=%u, cnt=%zu, failed",
-					  addr,
-					  width,
-					  chunk_len);
-			Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
-			Jim_AppendStrings(interp, Jim_GetResult(interp), "mem2array: cannot read memory", NULL);
-			e = JIM_ERR;
-			break;
-		} else {
-			for (size_t i = 0; i < chunk_len ; i++, idx++) {
-				uint64_t v = 0;
-				switch (width) {
-					case 8:
-						v = target_buffer_get_u64(target, &buffer[i*width]);
-						break;
-					case 4:
-						v = target_buffer_get_u32(target, &buffer[i*width]);
-						break;
-					case 2:
-						v = target_buffer_get_u16(target, &buffer[i*width]);
-						break;
-					case 1:
-						v = buffer[i] & 0x0ff;
-						break;
-				}
-				new_u64_array_element(interp, varname, idx, v);
-			}
-			len -= chunk_len;
-			addr += chunk_len * width;
-		}
-	}
-
-	free(buffer);
-
-	Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
-
-	return e;
 }
 
 COMMAND_HANDLER(handle_target_read_memory)
@@ -4681,201 +4514,6 @@ COMMAND_HANDLER(handle_target_read_memory)
 	free(buffer);
 
 	return ERROR_OK;
-}
-
-static int get_u64_array_element(Jim_Interp *interp, const char *varname, size_t idx, uint64_t *val)
-{
-	char *namebuf = alloc_printf("%s(%zu)", varname, idx);
-	if (!namebuf)
-		return JIM_ERR;
-
-	Jim_Obj *obj_name = Jim_NewStringObj(interp, namebuf, -1);
-	if (!obj_name) {
-		free(namebuf);
-		return JIM_ERR;
-	}
-
-	Jim_IncrRefCount(obj_name);
-	Jim_Obj *obj_val = Jim_GetVariable(interp, obj_name, JIM_ERRMSG);
-	Jim_DecrRefCount(interp, obj_name);
-	free(namebuf);
-	if (!obj_val)
-		return JIM_ERR;
-
-	jim_wide wide_val;
-	int result = Jim_GetWide(interp, obj_val, &wide_val);
-	*val = wide_val;
-	return result;
-}
-
-static int target_array2mem(Jim_Interp *interp, struct target *target,
-		int argc, Jim_Obj *const *argv)
-{
-	int e;
-
-	LOG_WARNING("DEPRECATED! use 'write_memory' not 'array2mem'");
-
-	/* argv[0] = name of array from which to read the data
-	 * argv[1] = desired element width in bits
-	 * argv[2] = memory address
-	 * argv[3] = number of elements to write
-	 * argv[4] = optional "phys"
-	 */
-	if (argc < 4 || argc > 5) {
-		Jim_WrongNumArgs(interp, 0, argv, "varname width addr nelems [phys]");
-		return JIM_ERR;
-	}
-
-	/* Arg 0: Name of the array variable */
-	const char *varname = Jim_GetString(argv[0], NULL);
-
-	/* Arg 1: Bit width of one element */
-	long l;
-	e = Jim_GetLong(interp, argv[1], &l);
-	if (e != JIM_OK)
-		return e;
-	const unsigned int width_bits = l;
-
-	if (width_bits != 8 &&
-			width_bits != 16 &&
-			width_bits != 32 &&
-			width_bits != 64) {
-		Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
-		Jim_AppendStrings(interp, Jim_GetResult(interp),
-				"Invalid width param. Must be one of: 8, 16, 32 or 64.", NULL);
-		return JIM_ERR;
-	}
-	const unsigned int width = width_bits / 8;
-
-	/* Arg 2: Memory address */
-	jim_wide wide_addr;
-	e = Jim_GetWide(interp, argv[2], &wide_addr);
-	if (e != JIM_OK)
-		return e;
-	target_addr_t addr = (target_addr_t)wide_addr;
-
-	/* Arg 3: Number of elements to write */
-	e = Jim_GetLong(interp, argv[3], &l);
-	if (e != JIM_OK)
-		return e;
-	size_t len = l;
-
-	/* Arg 4: Phys */
-	bool is_phys = false;
-	if (argc > 4) {
-		int str_len = 0;
-		const char *phys = Jim_GetString(argv[4], &str_len);
-		if (!strncmp(phys, "phys", str_len))
-			is_phys = true;
-		else
-			return JIM_ERR;
-	}
-
-	/* Argument checks */
-	if (len == 0) {
-		Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
-		Jim_AppendStrings(interp, Jim_GetResult(interp),
-				"array2mem: zero width read?", NULL);
-		return JIM_ERR;
-	}
-
-	if ((addr + (len * width)) < addr) {
-		Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
-		Jim_AppendStrings(interp, Jim_GetResult(interp),
-				"array2mem: addr + len - wraps to zero?", NULL);
-		return JIM_ERR;
-	}
-
-	if (len > 65536) {
-		Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
-		Jim_AppendStrings(interp, Jim_GetResult(interp),
-				"array2mem: too large memory write request, exceeds 64K items", NULL);
-		return JIM_ERR;
-	}
-
-	if ((width == 1) ||
-		((width == 2) && ((addr & 1) == 0)) ||
-		((width == 4) && ((addr & 3) == 0)) ||
-		((width == 8) && ((addr & 7) == 0))) {
-		/* alignment correct */
-	} else {
-		char buf[100];
-		Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
-		sprintf(buf, "array2mem address: " TARGET_ADDR_FMT " is not aligned for %" PRIu32 " byte reads",
-				addr,
-				width);
-		Jim_AppendStrings(interp, Jim_GetResult(interp), buf, NULL);
-		return JIM_ERR;
-	}
-
-	/* Transfer loop */
-
-	/* assume ok */
-	e = JIM_OK;
-
-	const size_t buffersize = 4096;
-	uint8_t *buffer = malloc(buffersize);
-	if (!buffer)
-		return JIM_ERR;
-
-	/* index counter */
-	size_t idx = 0;
-
-	while (len) {
-		/* Slurp... in buffer size chunks */
-		const unsigned int max_chunk_len = buffersize / width;
-
-		const size_t chunk_len = MIN(len, max_chunk_len); /* in elements.. */
-
-		/* Fill the buffer */
-		for (size_t i = 0; i < chunk_len; i++, idx++) {
-			uint64_t v = 0;
-			if (get_u64_array_element(interp, varname, idx, &v) != JIM_OK) {
-				free(buffer);
-				return JIM_ERR;
-			}
-			switch (width) {
-			case 8:
-				target_buffer_set_u64(target, &buffer[i * width], v);
-				break;
-			case 4:
-				target_buffer_set_u32(target, &buffer[i * width], v);
-				break;
-			case 2:
-				target_buffer_set_u16(target, &buffer[i * width], v);
-				break;
-			case 1:
-				buffer[i] = v & 0x0ff;
-				break;
-			}
-		}
-		len -= chunk_len;
-
-		/* Write the buffer to memory */
-		int retval;
-		if (is_phys)
-			retval = target_write_phys_memory(target, addr, width, chunk_len, buffer);
-		else
-			retval = target_write_memory(target, addr, width, chunk_len, buffer);
-		if (retval != ERROR_OK) {
-			/* BOO !*/
-			LOG_ERROR("array2mem: Write @ " TARGET_ADDR_FMT ", w=%u, cnt=%zu, failed",
-					  addr,
-					  width,
-					  chunk_len);
-			Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
-			Jim_AppendStrings(interp, Jim_GetResult(interp), "array2mem: cannot read memory", NULL);
-			e = JIM_ERR;
-			break;
-		}
-		addr += chunk_len * width;
-	}
-
-	free(buffer);
-
-	Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
-
-	return e;
 }
 
 static int target_jim_write_memory(Jim_Interp *interp, int argc,
@@ -5213,7 +4851,7 @@ static int target_jim_set_reg(Jim_Interp *interp, int argc,
 /**
  * Returns true only if the target has a handler for the specified event.
  */
-bool target_has_event_action(struct target *target, enum target_event event)
+bool target_has_event_action(const struct target *target, enum target_event event)
 {
 	struct target_event_action *teap;
 
@@ -5445,13 +5083,13 @@ no_params:
 				e = jim_getopt_wide(goi, &w);
 				if (e != JIM_OK)
 					return e;
-				/* make this exactly 1 or 0 */
-				target->backup_working_area = (!!w);
+				/* make this boolean */
+				target->backup_working_area = (w != 0);
 			} else {
 				if (goi->argc != 0)
 					goto no_params;
 			}
-			Jim_SetResult(goi->interp, Jim_NewIntObj(goi->interp, target->backup_working_area));
+			Jim_SetResult(goi->interp, Jim_NewIntObj(goi->interp, target->backup_working_area ? 1 : 0));
 			/* loop for more e*/
 			break;
 
@@ -5612,24 +5250,6 @@ static int jim_target_configure(Jim_Interp *interp, int argc, Jim_Obj * const *a
 	assert(cmd_ctx);
 	struct target *target = get_current_target(cmd_ctx);
 	return target_configure(&goi, target);
-}
-
-static int jim_target_mem2array(Jim_Interp *interp,
-		int argc, Jim_Obj *const *argv)
-{
-	struct command_context *cmd_ctx = current_command_context(interp);
-	assert(cmd_ctx);
-	struct target *target = get_current_target(cmd_ctx);
-	return target_mem2array(interp, target, argc - 1, argv + 1);
-}
-
-static int jim_target_array2mem(Jim_Interp *interp,
-		int argc, Jim_Obj *const *argv)
-{
-	struct command_context *cmd_ctx = current_command_context(interp);
-	assert(cmd_ctx);
-	struct target *target = get_current_target(cmd_ctx);
-	return target_array2mem(interp, target, argc - 1, argv + 1);
 }
 
 COMMAND_HANDLER(handle_target_examine)
@@ -5954,22 +5574,6 @@ static const struct command_registration target_instance_command_handlers[] = {
 		.usage = "address [count]",
 	},
 	{
-		.name = "array2mem",
-		.mode = COMMAND_EXEC,
-		.jim_handler = jim_target_array2mem,
-		.help = "Writes Tcl array of 8/16/32 bit numbers "
-			"to target memory",
-		.usage = "arrayname bitwidth address count",
-	},
-	{
-		.name = "mem2array",
-		.mode = COMMAND_EXEC,
-		.jim_handler = jim_target_mem2array,
-		.help = "Loads Tcl array of 8/16/32 bit numbers "
-			"from target memory",
-		.usage = "arrayname bitwidth address count",
-	},
-	{
 		.name = "get_reg",
 		.mode = COMMAND_EXEC,
 		.jim_handler = target_jim_get_reg,
@@ -6176,7 +5780,7 @@ static int target_create(struct jim_getopt_info *goi)
 	target->working_area        = 0x0;
 	target->working_area_size   = 0x0;
 	target->working_areas       = NULL;
-	target->backup_working_area = 0;
+	target->backup_working_area = false;
 
 	target->state               = TARGET_UNKNOWN;
 	target->debug_reason        = DBG_REASON_UNDEFINED;
@@ -6903,8 +6507,8 @@ static const struct command_registration target_exec_command_handlers[] = {
 		.mode = COMMAND_ANY,
 		.help = "Load image into server memory for later use by "
 			"fast_load; primarily for profiling",
-		.usage = "filename address ['bin'|'ihex'|'elf'|'s19'] "
-			"[min_address [max_length]]",
+		.usage = "filename [address ['bin'|'ihex'|'elf'|'s19' "
+			"[min_address [max_length]]]]",
 	},
 	{
 		.name = "fast_load",
@@ -7064,7 +6668,7 @@ static const struct command_registration target_exec_command_handlers[] = {
 		.handler = handle_wp_command,
 		.mode = COMMAND_EXEC,
 		.help = "list (no params) or create watchpoints",
-		.usage = "[address length [('r'|'w'|'a') value [mask]]]",
+		.usage = "[address length [('r'|'w'|'a') [value [mask]]]]",
 	},
 	{
 		.name = "rwp",
@@ -7077,8 +6681,8 @@ static const struct command_registration target_exec_command_handlers[] = {
 		.name = "load_image",
 		.handler = handle_load_image_command,
 		.mode = COMMAND_EXEC,
-		.usage = "filename address ['bin'|'ihex'|'elf'|'s19'] "
-			"[min_address] [max_length]",
+		.usage = "filename [address ['bin'|'ihex'|'elf'|'s19' "
+			"[min_address [max_length]]]]",
 	},
 	{
 		.name = "dump_image",
@@ -7131,6 +6735,13 @@ static const struct command_registration target_exec_command_handlers[] = {
 		.jim_handler = target_jim_write_memory,
 		.help = "Write Tcl list of 8/16/32/64 bit numbers to target memory",
 		.usage = "address width data ['phys']",
+	},
+	{
+		.name = "debug_reason",
+		.mode = COMMAND_EXEC,
+		.handler = handle_target_debug_reason,
+		.help = "displays the debug reason of this target",
+		.usage = "",
 	},
 	{
 		.name = "reset_nag",
