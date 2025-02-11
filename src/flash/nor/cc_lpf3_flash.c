@@ -55,23 +55,27 @@ static uint32_t cc_lpf3_calculate_crc(const uint8_t *data_ptr, uint32_t length)
  * Flash driver should pass sector aligned data over SACI.
  * SACI_CMD_FLASH_PROG_MAIN_PIPELINED doesnt have length option
  */
-uint8_t* cc_lpf3_flash_sector_padding(const uint8_t *buffer, unsigned int *count)
+uint32_t* cc_lpf3_flash_sector_padding(const uint8_t *buffer, uint32_t *count)
 {
-	uint8_t *sector_aligned_data = NULL;
-	uint32_t bytes_to_pad, total_count = (uint32_t)*count;
+	uint32_t *sector_aligned_data = NULL;
+	uint32_t bytes_to_pad = 0, start_count = (uint32_t)*count;
 
-	//This function dynamically allocatesmemory, make sure its freed
-	if(total_count%CC2340R5_MAIN_FLASH_SECTOR_SIZE)
-	{
-		//bytes to be padded (sector_size - offset_from_last_sector _start)
-		bytes_to_pad = CC2340R5_MAIN_FLASH_SECTOR_SIZE - (total_count%CC2340R5_MAIN_FLASH_SECTOR_SIZE);
-		LOG_INFO("Additional padding required: %d bytes",bytes_to_pad);
-		total_count += bytes_to_pad;
-		sector_aligned_data = malloc(total_count);
-		memset(sector_aligned_data, 0xFF, total_count);
-		memcpy(sector_aligned_data, buffer, (uint32_t)*count);
-		*count = total_count;
+	//Allocate maximum size that may be required in case of padding
+	//Caller function should make sure allocated memory is freed
+	sector_aligned_data = (uint32_t*)malloc(start_count + CC2340R5_MAIN_FLASH_SECTOR_SIZE);
+
+	if (sector_aligned_data == NULL) {
+		LOG_ERROR("Failed to allocate memory for sector aligned data");
+		return NULL;
 	}
+	if (start_count%CC2340R5_MAIN_FLASH_SECTOR_SIZE)
+		bytes_to_pad = CC2340R5_MAIN_FLASH_SECTOR_SIZE - start_count%CC2340R5_MAIN_FLASH_SECTOR_SIZE;
+
+	memset(sector_aligned_data+start_count, 0xFF, bytes_to_pad);
+	memcpy(sector_aligned_data, buffer, start_count);
+
+	//update the pointer if padding is added
+	*count = start_count + bytes_to_pad;
 
 	return sector_aligned_data;
 }
@@ -657,8 +661,22 @@ int cc_lpf3_write_ccfg(struct flash_bank *bank, const uint8_t *buffer,
 {
 	SACI_PARAM_T cmd;
 	SACI_RESP_T cmd_resp;
-	uint32_t *tx_words = (uint32_t*)buffer;
+	uint32_t *tx_words = NULL;
 	int ret_val;
+
+	//make sure the buffer is sector aligned
+	if (buffer)
+	{
+		tx_words = malloc(MAX_CCFG_SIZE_IN_BYTES);
+		if (!tx_words) {
+			LOG_INFO("Memory Allocation Fail");
+			return ERROR_FAIL;
+		}
+		memset(tx_words, 0xFF, MAX_CCFG_SIZE);
+		memcpy(tx_words, buffer, count);
+	} else {
+		return ERROR_FAIL;
+	}
 
 	memset((uint8_t*)&cmd, 0, sizeof(SACI_PARAM_T));
 
@@ -669,28 +687,36 @@ int cc_lpf3_write_ccfg(struct flash_bank *bank, const uint8_t *buffer,
 	ret_val = cc_lpf3_saci_send_cmd(bank, cmd);
 	if (ERROR_OK != ret_val) {
 		LOG_INFO("CCFG cmd fail");
-		return ERROR_FAIL;
+		ret_val = ERROR_FAIL;
+		goto FREE_AND_RETURN;
 	}
 
 	ret_val = cc_lpf3_saci_send_tx_words(bank, tx_words, MAX_CCFG_SIZE);
 	if (ERROR_OK != ret_val) {
 		LOG_INFO("CCFG Write");
-		return ERROR_FAIL;
+		ret_val = ERROR_FAIL;
+		goto FREE_AND_RETURN;
 	}
 
 	ret_val = cc_lpf3_saci_read_response(bank, &cmd_resp);
 	if (ERROR_OK != ret_val) {
 		LOG_INFO("CCFG Resp fail");
-		return ERROR_FAIL;
+		ret_val = ERROR_FAIL;
+		goto FREE_AND_RETURN;
 	}
 
 	ret_val = cc_lpf3_saci_verify_ccfg(bank, buffer);
 	if (ERROR_OK != ret_val) {
 		LOG_INFO("CCFG Verify Fail");
-		return ERROR_FAIL;
+		ret_val = ERROR_FAIL;
+		goto FREE_AND_RETURN;
 	}
 
-	return ERROR_OK;
+FREE_AND_RETURN:
+	if (tx_words)
+		free(tx_words);
+
+	return ret_val;
 }
 
 /*
@@ -715,24 +741,27 @@ int cc_lpf3_write_main(struct flash_bank *bank, const uint8_t *buffer,
 		return ERROR_FAIL;
 	}
 
-	uint8_t *tx_words = cc_lpf3_flash_sector_padding(buffer, (unsigned int*)&count);
-	ret_val = cc_lpf3_saci_send_sector_tx(bank, (uint32_t*)(tx_words ? tx_words : buffer), count, &cmd);
-	if (ret_val != ERROR_OK) {
-		LOG_INFO("Flash Sector programming failure");
-		return ERROR_FAIL;
+	uint32_t *tx_words = cc_lpf3_flash_sector_padding(buffer, (uint32_t*)&count);
+	uint8_t	 *tx_bytes = (uint8_t*)tx_words;
+
+	if (tx_words) {
+		ret_val = cc_lpf3_saci_send_sector_tx(bank, tx_words, count, &cmd);
+	} else {
+		LOG_INFO("Memory Allocation Fail");
+		ret_val = ERROR_FAIL;
 	}
 
-	/*Verify Main*/
-	ret_val = cc_lpf3_saci_verify_main(bank, (tx_words ? tx_words : buffer), count);
-	if (ret_val != ERROR_OK) {
+	if (ret_val != ERROR_OK)
+		LOG_INFO("Flash Sector programming failure");
+	else
+		ret_val = cc_lpf3_saci_verify_main(bank, tx_bytes, count);
+
+	if (ret_val != ERROR_OK)
 		LOG_INFO("Verify Main failure");
-		return ERROR_FAIL;
-	}
 
 	if (tx_words)
 		free(tx_words);
-
-	return ERROR_OK;
+	return ret_val;
 }
 
 /*
@@ -872,9 +901,6 @@ int cc_lpf3_exit_saci_halt(struct flash_bank *bank)
 	while (!(ret_val == BOOTSTA_APP_WAITLOOP_DBGPROBE ||
 				ret_val == BOOTSTA_BLDR_WAITLOOP_DBGPROBE) && (exit_halt_timeout > 0)) {
 		exit_halt_timeout -= check_interval;
-		if (exit_halt_timeout < SACI_EXIT_SACI_HALT_TIMEOUT-1000) {
-			LOG_INFO("Read Response Delayed - pending %ldms", exit_halt_timeout);
-		}
 		alive_sleep(check_interval);
 		ret_val =  cc_lpf3_check_boot_status(bank);
 	}
