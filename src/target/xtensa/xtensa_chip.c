@@ -144,17 +144,7 @@ static int xtensa_chip_examine(struct target *target)
 
 static int xtensa_chip_jim_configure(struct target *target, struct jim_getopt_info *goi)
 {
-	static bool dap_configured;
-	int ret = adiv5_jim_configure(target, goi);
-	if (ret == JIM_OK) {
-		LOG_DEBUG("xtensa '-dap' target option found");
-		dap_configured = true;
-	}
-	if (!dap_configured) {
-		LOG_DEBUG("xtensa '-dap' target option not yet found, assuming JTAG...");
-		target->has_dap = false;
-	}
-	return ret;
+	return adiv5_jim_configure_ext(target, goi, NULL, ADI_CONFIGURE_DAP_OPTIONAL);
 }
 
 /** Methods for generic example of Xtensa-based chip-level targets. */
@@ -183,6 +173,10 @@ struct target_type xtensa_chip_target = {
 	.checksum_memory = xtensa_checksum_memory,
 
 	.get_gdb_reg_list = xtensa_get_gdb_reg_list,
+
+	.run_algorithm = xtensa_run_algorithm,
+	.start_algorithm = xtensa_start_algorithm,
+	.wait_algorithm = xtensa_wait_algorithm,
 
 	.add_breakpoint = xtensa_breakpoint_add,
 	.remove_breakpoint = xtensa_breakpoint_remove,

@@ -382,7 +382,7 @@ AC_ARG_ENABLE([internal-libjaylink],
   [use_internal_libjaylink=$enableval], [use_internal_libjaylink=no])
 
 AC_ARG_ENABLE([remote-bitbang],
-  AS_HELP_STRING([--enable-remote-bitbang], [Enable building support for the Remote Bitbang jtag driver]),
+  AS_HELP_STRING([--enable-remote-bitbang], [Enable building support for the Remote Bitbang driver]),
   [build_remote_bitbang=$enableval], [build_remote_bitbang=no])
 
 AS_CASE(["${host_cpu}"],
@@ -598,9 +598,9 @@ AS_IF([test "x$use_internal_jimtcl" = "xyes"], [
 
 AS_IF([test "x$build_remote_bitbang" = "xyes"], [
   build_bitbang=yes
-  AC_DEFINE([BUILD_REMOTE_BITBANG], [1], [1 if you want the Remote Bitbang JTAG driver.])
+  AC_DEFINE([BUILD_REMOTE_BITBANG], [1], [1 if you want the Remote Bitbang driver.])
 ], [
-  AC_DEFINE([BUILD_REMOTE_BITBANG], [0], [0 if you don't want the Remote Bitbang JTAG driver.])
+  AC_DEFINE([BUILD_REMOTE_BITBANG], [0], [0 if you don't want the Remote Bitbang driver.])
 ])
 
 AS_IF([test "x$build_sysfsgpio" = "xyes"], [
@@ -669,7 +669,11 @@ PKG_CHECK_MODULES([LIBFTDI], [libftdi1], [
 	PKG_CHECK_MODULES([LIBFTDI], [libftdi], [use_libftdi=yes], [use_libftdi=no])
 ])
 
-PKG_CHECK_MODULES([LIBGPIOD], [libgpiod], [use_libgpiod=yes], [use_libgpiod=no])
+PKG_CHECK_MODULES([LIBGPIOD], [libgpiod < 2.0], [
+	use_libgpiod=yes
+	PKG_CHECK_EXISTS([libgpiod >= 1.5],
+		[AC_DEFINE([HAVE_LIBGPIOD1_FLAGS_BIAS], [1], [define if libgpiod v1 has line request flags bias])])
+], [use_libgpiod=no])
 
 PKG_CHECK_MODULES([LIBJAYLINK], [libjaylink >= 0.2],
 	[use_libjaylink=yes], [use_libjaylink=no])

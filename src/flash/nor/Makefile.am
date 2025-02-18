@@ -24,10 +24,13 @@ NOR_DRIVERS = \
 	%D%/bluenrg-x.c \
 	%D%/cc3220sf.c \
 	%D%/cc26xx.c \
+	%D%/cc2340r5.c \
+	%D%/cc_lpf3_flash.c \
 	%D%/cfi.c \
 	%D%/dsp5680xx_flash.c \
 	%D%/efm32.c \
 	%D%/em357.c \
+	%D%/eneispif.c \
 	%D%/esirisc_flash.c \
 	%D%/faux.c \
 	%D%/fespi.c \
@@ -43,6 +46,7 @@ NOR_DRIVERS = \
 	%D%/max32xxx.c \
 	%D%/mdr.c \
 	%D%/msp432.c \
+	%D%/mspm0.c \
 	%D%/mrvlqspi.c \
 	%D%/niietcm4.c \
 	%D%/non_cfi.c \

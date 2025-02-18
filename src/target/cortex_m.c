@@ -106,6 +106,12 @@ static const struct cortex_m_part_info cortex_m_parts[] = {
 		.flags = CORTEX_M_F_HAS_FPV5,
 	},
 	{
+		.impl_part = CORTEX_M85_PARTNO,
+		.name = "Cortex-M85",
+		.arch = ARM_ARCH_V8M,
+		.flags = CORTEX_M_F_HAS_FPV5,
+	},
+	{
 		.impl_part = STAR_MC1_PARTNO,
 		.name = "STAR-MC1",
 		.arch = ARM_ARCH_V8M,
@@ -1100,7 +1106,13 @@ static int cortex_m_poll(struct target *target)
 
 static int cortex_m_halt_one(struct target *target)
 {
+	int retval;
 	LOG_TARGET_DEBUG(target, "target->state: %s", target_state_name(target));
+
+	if (!target_was_examined(target)) {
+		LOG_TARGET_ERROR(target, "target non examined yet");
+		return ERROR_TARGET_NOT_EXAMINED;
+	}
 
 	if (target->state == TARGET_HALTED) {
 		LOG_TARGET_DEBUG(target, "target was already halted");
@@ -1110,22 +1122,8 @@ static int cortex_m_halt_one(struct target *target)
 	if (target->state == TARGET_UNKNOWN)
 		LOG_TARGET_WARNING(target, "target was in unknown state when halt was requested");
 
-	if (target->state == TARGET_RESET) {
-		if ((jtag_get_reset_config() & RESET_SRST_PULLS_TRST) && jtag_get_srst()) {
-			LOG_TARGET_ERROR(target, "can't request a halt while in reset if nSRST pulls nTRST");
-			return ERROR_TARGET_FAILURE;
-		} else {
-			/* we came here in a reset_halt or reset_init sequence
-			 * debug entry was already prepared in cortex_m3_assert_reset()
-			 */
-			target->debug_reason = DBG_REASON_DBGRQ;
-
-			return ERROR_OK;
-		}
-	}
-
 	/* Write to Debug Halting Control and Status Register */
-	cortex_m_write_debug_halt_mask(target, C_HALT, 0);
+	retval = cortex_m_write_debug_halt_mask(target, C_HALT, 0);
 
 	/* Do this really early to minimize the window where the MASKINTS erratum
 	 * can pile up pending interrupts. */
@@ -1133,7 +1131,7 @@ static int cortex_m_halt_one(struct target *target)
 
 	target->debug_reason = DBG_REASON_DBGRQ;
 
-	return ERROR_OK;
+	return retval;
 }
 
 static int cortex_m_halt(struct target *target)
@@ -1614,12 +1612,13 @@ static int cortex_m_assert_reset(struct target *target)
 	}
 
 	/* some cores support connecting while srst is asserted
-	 * use that mode is it has been configured */
+	 * use that mode if it has been configured */
 
 	bool srst_asserted = false;
 
 	if ((jtag_reset_config & RESET_HAS_SRST) &&
-		((jtag_reset_config & RESET_SRST_NO_GATING) || !armv7m->debug_ap)) {
+		((jtag_reset_config & RESET_SRST_NO_GATING)
+		 || (!armv7m->debug_ap && !target->defer_examine))) {
 		/* If we have no debug_ap, asserting SRST is the only thing
 		 * we can do now */
 		adapter_assert_reset();
@@ -1699,9 +1698,8 @@ static int cortex_m_assert_reset(struct target *target)
 		/* srst is asserted, ignore AP access errors */
 		retval = ERROR_OK;
 	} else {
-		/* Use a standard Cortex-M3 software reset mechanism.
-		 * We default to using VECTRESET as it is supported on all current cores
-		 * (except Cortex-M0, M0+ and M1 which support SYSRESETREQ only!)
+		/* Use a standard Cortex-M software reset mechanism.
+		 * We default to using VECTRESET.
 		 * This has the disadvantage of not resetting the peripherals, so a
 		 * reset-init event handler is needed to perform any peripheral resets.
 		 */
@@ -1748,17 +1746,7 @@ static int cortex_m_assert_reset(struct target *target)
 
 	register_cache_invalidate(cortex_m->armv7m.arm.core_cache);
 
-	/* now return stored error code if any */
-	if (retval != ERROR_OK)
-		return retval;
-
-	if (target->reset_halt && target_was_examined(target)) {
-		retval = target_halt(target);
-		if (retval != ERROR_OK)
-			return retval;
-	}
-
-	return ERROR_OK;
+	return retval;
 }
 
 static int cortex_m_deassert_reset(struct target *target)
@@ -2368,6 +2356,7 @@ static void cortex_m_dwt_addreg(struct target *t, struct reg *r, const struct dw
 	r->value = state->value;
 	r->arch_info = state;
 	r->type = &dwt_reg_type;
+	r->exist = true;
 }
 
 static void cortex_m_dwt_setup(struct cortex_m_common *cm, struct target *target)
@@ -2480,16 +2469,17 @@ static bool cortex_m_has_tz(struct target *target)
 	return (dauthstatus & DAUTHSTATUS_SID_MASK) != 0;
 }
 
-#define MVFR0 0xe000ef40
-#define MVFR1 0xe000ef44
 
-#define MVFR0_DEFAULT_M4 0x10110021
-#define MVFR1_DEFAULT_M4 0x11000011
+#define MVFR0          0xE000EF40
+#define MVFR0_SP_MASK  0x000000F0
+#define MVFR0_SP       0x00000020
+#define MVFR0_DP_MASK  0x00000F00
+#define MVFR0_DP       0x00000200
 
-#define MVFR0_DEFAULT_M7_SP 0x10110021
-#define MVFR0_DEFAULT_M7_DP 0x10110221
-#define MVFR1_DEFAULT_M7_SP 0x11000011
-#define MVFR1_DEFAULT_M7_DP 0x12000011
+#define MVFR1          0xE000EF44
+#define MVFR1_MVE_MASK 0x00000F00
+#define MVFR1_MVE_I    0x00000100
+#define MVFR1_MVE_F    0x00000200
 
 static int cortex_m_find_mem_ap(struct adiv5_dap *swjdp,
 		struct adiv5_ap **debug_ap)
@@ -2503,7 +2493,7 @@ static int cortex_m_find_mem_ap(struct adiv5_dap *swjdp,
 int cortex_m_examine(struct target *target)
 {
 	int retval;
-	uint32_t cpuid, fpcr, mvfr0, mvfr1;
+	uint32_t cpuid, fpcr;
 	struct cortex_m_common *cortex_m = target_to_cm(target);
 	struct adiv5_dap *swjdp = cortex_m->armv7m.arm.dap;
 	struct armv7m_common *armv7m = target_to_armv7m(target);
@@ -2578,25 +2568,37 @@ int cortex_m_examine(struct target *target)
 		LOG_TARGET_DEBUG(target, "cpuid: 0x%8.8" PRIx32 "", cpuid);
 
 		if (cortex_m->core_info->flags & CORTEX_M_F_HAS_FPV4) {
+			uint32_t mvfr0;
 			target_read_u32(target, MVFR0, &mvfr0);
-			target_read_u32(target, MVFR1, &mvfr1);
 
-			/* test for floating point feature on Cortex-M4 */
-			if ((mvfr0 == MVFR0_DEFAULT_M4) && (mvfr1 == MVFR1_DEFAULT_M4)) {
-				LOG_TARGET_DEBUG(target, "%s floating point feature FPv4_SP found", cortex_m->core_info->name);
+			if ((mvfr0 & MVFR0_SP_MASK) == MVFR0_SP) {
+				LOG_TARGET_DEBUG(target, "%s floating point feature FPv4_SP found",
+						cortex_m->core_info->name);
 				armv7m->fp_feature = FPV4_SP;
 			}
 		} else if (cortex_m->core_info->flags & CORTEX_M_F_HAS_FPV5) {
+			uint32_t mvfr0, mvfr1;
 			target_read_u32(target, MVFR0, &mvfr0);
 			target_read_u32(target, MVFR1, &mvfr1);
 
-			/* test for floating point features on Cortex-M7 */
-			if ((mvfr0 == MVFR0_DEFAULT_M7_SP) && (mvfr1 == MVFR1_DEFAULT_M7_SP)) {
-				LOG_TARGET_DEBUG(target, "%s floating point feature FPv5_SP found", cortex_m->core_info->name);
+			if ((mvfr0 & MVFR0_DP_MASK) == MVFR0_DP) {
+				if ((mvfr1 & MVFR1_MVE_MASK) == MVFR1_MVE_F) {
+					LOG_TARGET_DEBUG(target, "%s floating point feature FPv5_DP + MVE-F found",
+							cortex_m->core_info->name);
+					armv7m->fp_feature = FPV5_MVE_F;
+				} else {
+					LOG_TARGET_DEBUG(target, "%s floating point feature FPv5_DP found",
+							cortex_m->core_info->name);
+					armv7m->fp_feature = FPV5_DP;
+				}
+			} else if ((mvfr0 & MVFR0_SP_MASK) == MVFR0_SP) {
+				LOG_TARGET_DEBUG(target, "%s floating point feature FPv5_SP found",
+						cortex_m->core_info->name);
 				armv7m->fp_feature = FPV5_SP;
-			} else if ((mvfr0 == MVFR0_DEFAULT_M7_DP) && (mvfr1 == MVFR1_DEFAULT_M7_DP)) {
-				LOG_TARGET_DEBUG(target, "%s floating point feature FPv5_DP found", cortex_m->core_info->name);
-				armv7m->fp_feature = FPV5_DP;
+			} else if ((mvfr1 & MVFR1_MVE_MASK) == MVFR1_MVE_I) {
+				LOG_TARGET_DEBUG(target, "%s floating point feature MVE-I found",
+						cortex_m->core_info->name);
+				armv7m->fp_feature = FPV5_MVE_I;
 			}
 		}
 
@@ -2788,7 +2790,7 @@ static int cortex_m_init_arch_info(struct target *target,
 	armv7m_init_arch_info(target, armv7m);
 
 	/* default reset mode is to use srst if fitted
-	 * if not it will use CORTEX_M3_RESET_VECTRESET */
+	 * if not it will use CORTEX_M_RESET_VECTRESET */
 	cortex_m->soft_reset_config = CORTEX_M_RESET_VECTRESET;
 
 	armv7m->arm.dap = dap;
@@ -2845,8 +2847,7 @@ static int cortex_m_verify_pointer(struct command_invocation *cmd,
 
 /*
  * Only stuff below this line should need to verify that its target
- * is a Cortex-M3.  Everything else should have indirected through the
- * cortexm3_target structure, which is only used with CM3 targets.
+ * is a Cortex-M with available DAP access (not a HLA adapter).
  */
 
 COMMAND_HANDLER(handle_cortex_m_vector_catch_command)
@@ -2905,7 +2906,7 @@ COMMAND_HANDLER(handle_cortex_m_vector_catch_command)
 				break;
 			}
 			if (i == ARRAY_SIZE(vec_ids)) {
-				LOG_TARGET_ERROR(target, "No CM3 vector '%s'", CMD_ARGV[CMD_ARGC]);
+				LOG_TARGET_ERROR(target, "No Cortex-M vector '%s'", CMD_ARGV[CMD_ARGC]);
 				return ERROR_COMMAND_SYNTAX_ERROR;
 			}
 		}
