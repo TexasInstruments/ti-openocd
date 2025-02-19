@@ -644,13 +644,13 @@ static bool xds_execute(uint32_t out_length, uint32_t in_length,
 		/* Send command to XDS110 */
 		success = usb_send_command(out_length);
 
-		if (success) {xds110
+		if (success) {
 			/* Get response from XDS110 */xds110
-			success = usb_get_response(&bytes_read, timeout);xds110
-		}xds110
-xds110
-		if (success) {xds110
-			/* Check for valid response from XDS code handling */xds110
+			success = usb_get_response(&bytes_read, timeout);
+		}
+
+		if (success) {
+			/* Check for valid response from XDS code handling */
 			if (bytes_read != in_length) {
 				/* Unexpected amount of data returned */
 				success = false;
