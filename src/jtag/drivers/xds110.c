@@ -143,30 +143,49 @@
 #define XDS_IN_LEN  4 /* error code (int) */
 
 /* XDS API Commands */
-#define XDS_CONNECT      0x01 /* Connect JTAG connection */
-#define XDS_DISCONNECT   0x02 /* Disconnect JTAG connection */
-#define XDS_VERSION      0x03 /* Get firmware version and hardware ID */
-#define XDS_SET_TCK      0x04 /* Set TCK delay (to set TCK frequency) */
-#define XDS_SET_TRST     0x05 /* Assert or deassert nTRST signal */
-#define XDS_CYCLE_TCK    0x07 /* Toggle TCK for a number of cycles */
-#define XDS_GOTO_STATE   0x09 /* Go to requested JTAG state */
-#define XDS_JTAG_SCAN    0x0c /* Send and receive JTAG scan */
-#define XDS_SET_SRST     0x0e /* Assert or deassert nSRST signal */
-#define CMAPI_CONNECT    0x0f /* CMAPI connect */
-#define CMAPI_DISCONNECT 0x10 /* CMAPI disconnect */
-#define CMAPI_ACQUIRE    0x11 /* CMAPI acquire */
-#define CMAPI_RELEASE    0x12 /* CMAPI release */
-#define CMAPI_REG_READ   0x15 /* CMAPI DAP register read */
-#define CMAPI_REG_WRITE  0x16 /* CMAPI DAP register write */
-#define SWD_CONNECT      0x17 /* Switch from JTAG to SWD connection */
-#define SWD_DISCONNECT   0x18 /* Switch from SWD to JTAG connection */
-#define CJTAG_CONNECT    0x2b /* Switch from JTAG to cJTAG connection */
-#define CJTAG_DISCONNECT 0x2c /* Switch from cJTAG to JTAG connection */
-#define XDS_SET_SUPPLY   0x32 /* Set up stand-alone probe upply voltage */
-#define OCD_DAP_REQUEST  0x3a /* Handle block of DAP requests */
-#define OCD_SCAN_REQUEST 0x3b /* Handle block of JTAG scan requests */
-#define OCD_PATHMOVE     0x3c /* Handle PATHMOVE to navigate JTAG states */
-#define XDS_SET_PROPERTY 0x49 /* Set XDS110 property */
+// This file extends the generic error location definition in gti3.
+#define XDS_API_COMMANDS_DEFINITION    \
+    XDS_API_CMD(XDS_CONNECT, 0x01) /* Connect JTAG connection */    \
+    XDS_API_CMD(XDS_DISCONNECT, 0x02) /* Disconnect JTAG connection */    \
+    XDS_API_CMD(XDS_VERSION, 0x03) /* Get firmware version and hardware ID */    \
+    XDS_API_CMD(XDS_SET_TCK, 0x04) /* Set TCK delay (to set TCK frequency) */    \
+    XDS_API_CMD(XDS_SET_TRST, 0x05) /* Assert or deassert nTRST signal */    \
+    XDS_API_CMD(XDS_CYCLE_TCK, 0x07) /* Toggle TCK for a number of cycles */    \
+    XDS_API_CMD(XDS_GOTO_STATE, 0x09) /* Go to requested JTAG state */    \
+    XDS_API_CMD(XDS_JTAG_SCAN, 0x0c) /* Send and receive JTAG scan */    \
+    XDS_API_CMD(XDS_SET_SRST, 0x0e) /* Assert or deassert nSRST signal */    \
+    XDS_API_CMD(CMAPI_CONNECT, 0x0f) /* CMAPI connect */    \
+    XDS_API_CMD(CMAPI_DISCONNECT, 0x10) /* CMAPI disconnect */    \
+    XDS_API_CMD(CMAPI_ACQUIRE, 0x11) /* CMAPI acquire */    \
+    XDS_API_CMD(CMAPI_RELEASE, 0x12) /* CMAPI release */    \
+    XDS_API_CMD(CMAPI_REG_READ, 0x15) /* CMAPI DAP register read */    \
+    XDS_API_CMD(CMAPI_REG_WRITE, 0x16) /* CMAPI DAP register write */    \
+    XDS_API_CMD(SWD_CONNECT , 0x17) /* Switch from JTAG to SWD connection */    \
+    XDS_API_CMD(SWD_DISCONNECT, 0x18) /* Switch from SWD to JTAG connection */    \
+    XDS_API_CMD(CJTAG_CONNECT, 0x2b) /* Switch from JTAG to cJTAG connection */    \
+    XDS_API_CMD(CJTAG_DISCONNECT, 0x2c) /* Switch from cJTAG to JTAG connection */    \
+    XDS_API_CMD(XDS_SET_SUPPLY, 0x32) /* Set up stand-alone probe upply voltage */    \
+    XDS_API_CMD(OCD_DAP_REQUEST, 0x3a) /* Handle block of DAP requests */    \
+    XDS_API_CMD(OCD_SCAN_REQUEST, 0x3b) /* Handle block of JTAG scan requests */    \
+    XDS_API_CMD(OCD_PATHMOVE, 0x3c) /* Handle PATHMOVE to navigate JTAG states */    \
+    XDS_API_CMD(XDS_SET_PROPERTY, 0x49) /* Set XDS110 property */
+
+#define XDS_API_CMD(name,cmd) const unsigned int name = cmd;
+XDS_API_COMMANDS_DEFINITION
+#undef XDS_API_CMD
+
+#define XDS_API_CMD(name,cmd) case cmd: return #name;
+static const char* xds_api_comamnd_name( unsigned int cmd)
+{
+	switch(cmd)
+	{
+		XDS_API_COMMANDS_DEFINITION
+		default:
+		;
+	}
+	return "???";
+}
+#undef XDS_API_CMD
 
 #define CMD_IR_SCAN      1
 #define CMD_DR_SCAN      2
@@ -625,28 +644,28 @@ static bool xds_execute(uint32_t out_length, uint32_t in_length,
 		/* Send command to XDS110 */
 		success = usb_send_command(out_length);
 
-		if (success) {
-			/* Get response from XDS110 */
-			success = usb_get_response(&bytes_read, timeout);
-		}
-
-		if (success) {
-			/* Check for valid response from XDS code handling */
+		if (success) {xds110
+			/* Get response from XDS110 */xds110
+			success = usb_get_response(&bytes_read, timeout);xds110
+		}xds110
+xds110
+		if (success) {xds110
+			/* Check for valid response from XDS code handling */xds110
 			if (bytes_read != in_length) {
 				/* Unexpected amount of data returned */
 				success = false;
-				LOG_DEBUG("XDS110: command 0x%02x return %" PRIu32 " bytes, expected %" PRIu32,
-					xds110.write_payload[0], bytes_read, in_length);
+				LOG_DEBUG("XDS110: %s return %" PRIu32 " bytes, expected %" PRIu32,
+					xds_api_comamnd_name(xds110.write_payload[0]), bytes_read, in_length);
 			} else {
 				/* Extract error code from return packet */
 				error = (int)xds110_get_u32(&xds110.read_payload[0]);
 				done = true;
 				if (error != SC_ERR_NONE)
 				{
-					LOG_DEBUG("XDS110: command 0x%02x returned error %d",
-						xds110.write_payload[0], error);
+					LOG_DEBUG("XDS110: %s returned error %d",
+						xds_api_comamnd_name(xds110.write_payload[0]), error);
 				} else {
-					LOG_DEBUG("XDS110: command 0x%02x - Success");
+					LOG_DEBUG("XDS110: %s - Success", xds_api_comamnd_name(xds110.write_payload[0]));
 
 				}
 			}
