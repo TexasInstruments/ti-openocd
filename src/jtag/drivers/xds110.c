@@ -645,7 +645,7 @@ static bool xds_execute(uint32_t out_length, uint32_t in_length,
 		success = usb_send_command(out_length);
 
 		if (success) {
-			/* Get response from XDS110 */xds110
+			/* Get response from XDS110 */
 			success = usb_get_response(&bytes_read, timeout);
 		}
 
@@ -1532,21 +1532,6 @@ static int xds110_init(void)
 			success = swd_connect();
 		} else {
 			success = cjtag_connect(MODE_JTAG);
-		}
-	}
-
-	if (success && xds110.is_swd_mode) {
-		uint32_t idcode;
-
-		/* Connect to CMAPI interface in XDS110 */
-		success = cmapi_connect(&idcode);
-
-		/* Acquire exclusive access to CMAPI interface */
-		if (success) {
-			xds110.is_cmapi_connected = true;
-			success = cmapi_acquire();
-			if (success)
-				xds110.is_cmapi_acquired = true;
 		}
 	}
 
