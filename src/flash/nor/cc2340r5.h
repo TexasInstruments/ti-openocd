@@ -7,10 +7,12 @@
  ***************************************************************************/
 
 /// Size of one MAIN flash sector, in number of bytes
-#define MAIN_SECTOR_SIZE_WORDS		(512)
+#define MAIN_SECTOR_SIZE_WORDS			(512)
 
 /// The maximum CCFG size of all devices that uses SACI.
 #define MAX_CCFG_SIZE				MAIN_SECTOR_SIZE_WORDS
+#define MAX_CCFG_SIZE_IN_BYTES			(MAX_CCFG_SIZE * 4)
+
 /// Size of one MAIN flash sector, in number of bytes
 #define CC2340R5_MAIN_FLASH_SIZE		(0x80000U) //512Kb
 #define CC2340R5_MAIN_FLASH_SECTOR_SIZE (0x800U) //2Kb
@@ -40,18 +42,18 @@
    main and ccfg write will make flash write complete
  */
 typedef enum CC23XX_FLASH_STAGE{
-	CC23XX_FLASH_INIT		= 0x0,
-	CC23XX_FLASH_ERASE		= 0x1,
-	CC23XX_FLASH_MAIN		= 0x2,
-	CC23XX_FLASH_CCFG		= 0x3,
-	CC23XX_FLASH_COMPLETE	= 0x4
+	CC23XX_FLASH_STAGE_INIT		= 0x0,
+	CC23XX_FLASH_STAGE_ERASE	= 0x1,
+	CC23XX_FLASH_STAGE_MAIN		= 0x2,
+	CC23XX_FLASH_STAGE_CCFG		= 0x3,
+	CC23XX_FLASH_STAGE_COMPLETE	= 0x4
 }CC23XX_FLASH_STAGE_T;
 
 typedef enum CC23XX_FLASH_OP{
-	CC23XX_CHIP_NONE,
-	CC23XX_CHIP_ERASE,
-	CC23XX_PROG_MAIN,
-	CC23XX_PROG_CCFG
+	CC23XX_FLASH_OP_NONE,
+	CC23XX_FLASH_OP_CHIP_ERASE,
+	CC23XX_FLASH_OP_PROG_MAIN,
+	CC23XX_FLASH_OP_PROG_CCFG
 }CC23XX_FLASH_OP_T;
 
 struct cc23xx_part_info {
