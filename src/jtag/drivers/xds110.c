@@ -1183,6 +1183,10 @@ static int xds110_swd_switch_seq(enum swd_special_seq seq)
 			success = cjtag_connect(MODE_JTAG);
 		}
 		break;
+	case JTAG_TO_DORMANT:
+	case DORMANT_TO_JTAG:
+		// Not implemented in xds110
+		break;
 	default:
 		LOG_ERROR("Sequence %d not supported", seq);
 		return ERROR_FAIL;
