@@ -143,34 +143,58 @@
 #define XDS_IN_LEN  4 /* error code (int) */
 
 /* XDS API Commands */
-#define XDS_CONNECT      0x01 /* Connect JTAG connection */
-#define XDS_DISCONNECT   0x02 /* Disconnect JTAG connection */
-#define XDS_VERSION      0x03 /* Get firmware version and hardware ID */
-#define XDS_SET_TCK      0x04 /* Set TCK delay (to set TCK frequency) */
-#define XDS_SET_TRST     0x05 /* Assert or deassert nTRST signal */
-#define XDS_CYCLE_TCK    0x07 /* Toggle TCK for a number of cycles */
-#define XDS_GOTO_STATE   0x09 /* Go to requested JTAG state */
-#define XDS_JTAG_SCAN    0x0c /* Send and receive JTAG scan */
-#define XDS_SET_SRST     0x0e /* Assert or deassert nSRST signal */
-#define CMAPI_CONNECT    0x0f /* CMAPI connect */
-#define CMAPI_DISCONNECT 0x10 /* CMAPI disconnect */
-#define CMAPI_ACQUIRE    0x11 /* CMAPI acquire */
-#define CMAPI_RELEASE    0x12 /* CMAPI release */
-#define CMAPI_REG_READ   0x15 /* CMAPI DAP register read */
-#define CMAPI_REG_WRITE  0x16 /* CMAPI DAP register write */
-#define SWD_CONNECT      0x17 /* Switch from JTAG to SWD connection */
-#define SWD_DISCONNECT   0x18 /* Switch from SWD to JTAG connection */
-#define CJTAG_CONNECT    0x2b /* Switch from JTAG to cJTAG connection */
-#define CJTAG_DISCONNECT 0x2c /* Switch from cJTAG to JTAG connection */
-#define XDS_SET_SUPPLY   0x32 /* Set up stand-alone probe upply voltage */
-#define OCD_DAP_REQUEST  0x3a /* Handle block of DAP requests */
-#define OCD_SCAN_REQUEST 0x3b /* Handle block of JTAG scan requests */
-#define OCD_PATHMOVE     0x3c /* Handle PATHMOVE to navigate JTAG states */
+// This file extends the generic error location definition in gti3.
+#define XDS_API_COMMANDS_DEFINITION    \
+    XDS_API_CMD(XDS_CONNECT, 0x01) /* Connect JTAG connection */    \
+    XDS_API_CMD(XDS_DISCONNECT, 0x02) /* Disconnect JTAG connection */    \
+    XDS_API_CMD(XDS_VERSION, 0x03) /* Get firmware version and hardware ID */    \
+    XDS_API_CMD(XDS_SET_TCK, 0x04) /* Set TCK delay (to set TCK frequency) */    \
+    XDS_API_CMD(XDS_SET_TRST, 0x05) /* Assert or deassert nTRST signal */    \
+    XDS_API_CMD(XDS_CYCLE_TCK, 0x07) /* Toggle TCK for a number of cycles */    \
+    XDS_API_CMD(XDS_GOTO_STATE, 0x09) /* Go to requested JTAG state */    \
+    XDS_API_CMD(XDS_JTAG_SCAN, 0x0c) /* Send and receive JTAG scan */    \
+    XDS_API_CMD(XDS_SET_SRST, 0x0e) /* Assert or deassert nSRST signal */    \
+    XDS_API_CMD(CMAPI_CONNECT, 0x0f) /* CMAPI connect */    \
+    XDS_API_CMD(CMAPI_DISCONNECT, 0x10) /* CMAPI disconnect */    \
+    XDS_API_CMD(CMAPI_ACQUIRE, 0x11) /* CMAPI acquire */    \
+    XDS_API_CMD(CMAPI_RELEASE, 0x12) /* CMAPI release */    \
+    XDS_API_CMD(CMAPI_REG_READ, 0x15) /* CMAPI DAP register read */    \
+    XDS_API_CMD(CMAPI_REG_WRITE, 0x16) /* CMAPI DAP register write */    \
+    XDS_API_CMD(SWD_CONNECT , 0x17) /* Switch from JTAG to SWD connection */    \
+    XDS_API_CMD(SWD_DISCONNECT, 0x18) /* Switch from SWD to JTAG connection */    \
+    XDS_API_CMD(CJTAG_CONNECT, 0x2b) /* Switch from JTAG to cJTAG connection */    \
+    XDS_API_CMD(CJTAG_DISCONNECT, 0x2c) /* Switch from cJTAG to JTAG connection */    \
+    XDS_API_CMD(XDS_SET_SUPPLY, 0x32) /* Set up stand-alone probe upply voltage */    \
+    XDS_API_CMD(OCD_DAP_REQUEST, 0x3a) /* Handle block of DAP requests */    \
+    XDS_API_CMD(OCD_SCAN_REQUEST, 0x3b) /* Handle block of JTAG scan requests */    \
+    XDS_API_CMD(OCD_PATHMOVE, 0x3c) /* Handle PATHMOVE to navigate JTAG states */    \
+    XDS_API_CMD(XDS_SET_PROPERTY, 0x49) /* Set XDS110 property */
+
+#define XDS_API_CMD(name,cmd) const unsigned int name = cmd;
+XDS_API_COMMANDS_DEFINITION
+#undef XDS_API_CMD
+
+#define XDS_API_CMD(name,cmd) case cmd: return #name;
+static const char* xds_api_comamnd_name( unsigned int cmd)
+{
+	switch(cmd)
+	{
+		XDS_API_COMMANDS_DEFINITION
+		default:
+		;
+	}
+	return "???";
+}
+#undef XDS_API_CMD
 
 #define CMD_IR_SCAN      1
 #define CMD_DR_SCAN      2
 #define CMD_RUNTEST      3
 #define CMD_STABLECLOCKS 4
+
+#define XDS_PROPERTY_ID_SWJ_DP_DEFAULT_MODE	0
+#define SWJ_DP_DEFAULT_TO_JTAG    0
+#define SWJ_DP_DEFAULT_TO_DORMANT 1
 
 /* Array to convert from OpenOCD tap_state_t to XDS JTAG state */
 static const uint32_t xds_jtag_state[] = {
@@ -630,15 +654,20 @@ static bool xds_execute(uint32_t out_length, uint32_t in_length,
 			if (bytes_read != in_length) {
 				/* Unexpected amount of data returned */
 				success = false;
-				LOG_DEBUG("XDS110: command 0x%02x return %" PRIu32 " bytes, expected %" PRIu32,
-					xds110.write_payload[0], bytes_read, in_length);
+				LOG_DEBUG("XDS110: %s return %" PRIu32 " bytes, expected %" PRIu32,
+					xds_api_comamnd_name(xds110.write_payload[0]), bytes_read, in_length);
 			} else {
 				/* Extract error code from return packet */
 				error = (int)xds110_get_u32(&xds110.read_payload[0]);
 				done = true;
 				if (error != SC_ERR_NONE)
-					LOG_DEBUG("XDS110: command 0x%02x returned error %d",
-						xds110.write_payload[0], error);
+				{
+					LOG_DEBUG("XDS110: %s returned error %d",
+						xds_api_comamnd_name(xds110.write_payload[0]), error);
+				} else {
+					LOG_DEBUG("XDS110: %s - Success", xds_api_comamnd_name(xds110.write_payload[0]));
+
+				}
 			}
 		}
 	}
@@ -1076,6 +1105,25 @@ static bool ocd_pathmove(uint32_t num_states, uint8_t *path)
 	return success;
 }
 
+static bool xds_set_property(uint32_t id, uint32_t mode)
+{
+	uint8_t *id_pntr = &xds110.write_payload[XDS_OUT_LEN + 0]; /* 32-bits */
+	uint8_t *mode_pntr = &xds110.write_payload[XDS_OUT_LEN + 4]; /* 32-bits */
+
+	bool success;
+
+	xds110.write_payload[0] = XDS_SET_PROPERTY;
+
+	xds110_set_u32(id_pntr, id);
+	xds110_set_u32(mode_pntr, mode);
+
+	success = xds_execute(XDS_OUT_LEN + 8, XDS_IN_LEN, DEFAULT_ATTEMPTS,
+				DEFAULT_TIMEOUT);
+
+	return success;
+}
+
+
 /***************************************************************************
  *   swd driver interface                                                  *
  *                                                                         *
@@ -1091,19 +1139,26 @@ static int xds110_swd_init(void)
 static int xds110_swd_switch_seq(enum swd_special_seq seq)
 {
 	uint32_t idcode;
-	bool success;
+	bool success = false;
+	bool isDormant = false;
 
 	switch (seq) {
 	case LINE_RESET:
 		LOG_ERROR("Sequence SWD line reset (%d) not supported", seq);
 		return ERROR_FAIL;
+	case DORMANT_TO_SWD:
 	case JTAG_TO_SWD:
-		LOG_DEBUG("JTAG-to-SWD");
+		isDormant = (seq == DORMANT_TO_SWD);
+		LOG_DEBUG(isDormant ? "DORMANT-to-SWD" : "JTAG-to-SWD");
 		xds110.is_swd_mode = false;
 		xds110.is_cmapi_connected = false;
 		xds110.is_cmapi_acquired = false;
+		success = xds_set_property(XDS_PROPERTY_ID_SWJ_DP_DEFAULT_MODE,
+			isDormant ? SWJ_DP_DEFAULT_TO_DORMANT : SWJ_DP_DEFAULT_TO_JTAG );
 		/* Run sequence to put target in SWD mode */
-		success = swd_connect();
+		if (success) {
+			success = swd_connect();
+		}
 		/* Re-initialize CMAPI API for DAP access */
 		if (success) {
 			xds110.is_swd_mode = true;
@@ -1114,17 +1169,23 @@ static int xds110_swd_switch_seq(enum swd_special_seq seq)
 			}
 		}
 		break;
+	case SWD_TO_DORMANT:
 	case SWD_TO_JTAG:
-		LOG_DEBUG("SWD-to-JTAG");
+		isDormant = (seq == SWD_TO_DORMANT);
+		LOG_DEBUG( isDormant ? "SWD-to-DORMANT" : "SWD-to-JTAG");
 		xds110.is_swd_mode = false;
 		xds110.is_cmapi_connected = false;
 		xds110.is_cmapi_acquired = false;
 		/* Run sequence to put target in JTAG mode */
 		success = swd_disconnect();
-		if (success) {
+		if (success && !isDormant) {
 			/* Re-initialize JTAG interface */
 			success = cjtag_connect(MODE_JTAG);
 		}
+		break;
+	case JTAG_TO_DORMANT:
+	case DORMANT_TO_JTAG:
+		// Not implemented in xds110
 		break;
 	default:
 		LOG_ERROR("Sequence %d not supported", seq);
@@ -1475,21 +1536,6 @@ static int xds110_init(void)
 			success = swd_connect();
 		} else {
 			success = cjtag_connect(MODE_JTAG);
-		}
-	}
-
-	if (success && xds110.is_swd_mode) {
-		uint32_t idcode;
-
-		/* Connect to CMAPI interface in XDS110 */
-		success = cmapi_connect(&idcode);
-
-		/* Acquire exclusive access to CMAPI interface */
-		if (success) {
-			xds110.is_cmapi_connected = true;
-			success = cmapi_acquire();
-			if (success)
-				xds110.is_cmapi_acquired = true;
 		}
 	}
 
