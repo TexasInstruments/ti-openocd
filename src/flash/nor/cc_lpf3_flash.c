@@ -403,8 +403,26 @@ static int cc_lpf3_saci_read_response(struct flash_bank *bank, SACI_RESP_T *cmd_
 		return ERROR_FAIL;
 	}
 
-	//response can be read
-	ret_val = cc_lpf3_read_from_AP(bank, DEBUGSS_SEC_AP, SEC_AP_RXD, (uint32_t*)cmd_resp);
+	// Allocate a uint32_t* variable to read the SACI response
+	uint32_t *resp = (uint32_t*)malloc(sizeof(SACI_RESP_T));
+
+	if (resp == NULL)
+	{
+		return ERROR_FAIL;
+	}
+	// clear allocated memory
+	memset (resp, 0, sizeof(SACI_RESP_T));
+
+	// response can be read
+	ret_val = cc_lpf3_read_from_AP(bank, DEBUGSS_SEC_AP, SEC_AP_RXD, resp);
+
+	if (ret_val != ERROR_OK)
+	{
+		free(resp);
+		return ERROR_FAIL;
+	}
+	memcpy(cmd_resp, resp, sizeof(SACI_RESP_T));
+	free(resp);
 
 	if ((cmd_resp->data_word_count) & 0xFF) {
 		resp_len = (cmd_resp->data_word_count) & 0xFF;
@@ -729,7 +747,6 @@ int cc_lpf3_write_main(struct flash_bank *bank, const uint8_t *buffer,
 	int ret_val;
 
 	memset((uint8_t*)&cmd, 0, sizeof(SACI_PARAM_T));
-
 	cc_lpf3_update_cmd_word(SACI_FLASH_PROG_MAIN_PIPELINED, &cmd, 0);
 	cmd.flash_prog_main_pipelined.key = FLASH_KEY;
 	cmd.flash_prog_main_pipelined.first_sector_addr = (uint32_t)bank->base;
@@ -769,7 +786,6 @@ int cc_lpf3_write_main(struct flash_bank *bank, const uint8_t *buffer,
  */
 int cc_lpf3_saci_send_cmd(struct flash_bank *bank, SACI_PARAM_T tx_cmd)
 {
-	uint32_t *param_words = NULL;
 	uint16_t cmd_length = cc_lpf3_get_cmd_word_length(tx_cmd);
 	//Read TXCTL
 	int ret_val = cc_lpf3_wait_tx_data_clear(bank);
@@ -805,15 +821,26 @@ int cc_lpf3_saci_send_cmd(struct flash_bank *bank, SACI_PARAM_T tx_cmd)
 			return ERROR_FAIL;
 		}
 
-		param_words = (uint32_t*)&tx_cmd;
+		uint32_t *param_words = (uint32_t*)malloc(sizeof(SACI_PARAM_T));
+		if (param_words == NULL)
+		{
+			LOG_INFO("Param words memory allocation failure");
+			return ERROR_FAIL;
+		}
+		// clear allocated memory
+		memset (param_words, 0, sizeof(SACI_PARAM_T));
+		memcpy(param_words, &tx_cmd, sizeof(SACI_PARAM_T));
 
 		for (uint8_t cmd_word = 1; cmd_word<cmd_length; cmd_word++) {
 			//Set TXD (0x200) with command
 			ret_val = cc_lpf3_write_to_AP(bank, DEBUGSS_SEC_AP, SEC_AP_TXD, param_words[cmd_word]);
 			if (ERROR_OK != ret_val) {
 				LOG_INFO("saci_send_cmd:cmd_id-%d Write Failed : %d", tx_cmd.common.cmd.cmd_id, ret_val);
+				free(param_words);
+				return ERROR_FAIL;
 			}
 		}
+		free(param_words);
 	}
 
 	//Read TXCTL
