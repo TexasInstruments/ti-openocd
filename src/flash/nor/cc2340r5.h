@@ -56,11 +56,12 @@ typedef enum CC23XX_FLASH_OP{
 	CC23XX_FLASH_OP_PROG_CCFG
 }CC23XX_FLASH_OP_T;
 
+#pragma pack(push, 1)
 struct cc23xx_part_info {
 	const char *partname;
 	uint32_t device_id;
 	uint32_t part_id;
 	uint32_t flash_size;
 	uint32_t ram_size;
-
 };
+#pragma pack(pop)
