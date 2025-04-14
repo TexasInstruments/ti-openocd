@@ -71,7 +71,7 @@ uint32_t* cc_lpf3_flash_sector_padding(const uint8_t *buffer, uint32_t *count)
 	if (start_count%CC2340R5_MAIN_FLASH_SECTOR_SIZE)
 		bytes_to_pad = CC2340R5_MAIN_FLASH_SECTOR_SIZE - start_count%CC2340R5_MAIN_FLASH_SECTOR_SIZE;
 
-	memset(sector_aligned_data+start_count, 0xFF, bytes_to_pad);
+	memset((uint8_t*)(sector_aligned_data)+start_count, 0xFF, bytes_to_pad);
 	memcpy(sector_aligned_data, buffer, start_count);
 
 	//update the pointer if padding is added
@@ -759,7 +759,6 @@ int cc_lpf3_write_main(struct flash_bank *bank, const uint8_t *buffer,
 	}
 
 	uint32_t *tx_words = cc_lpf3_flash_sector_padding(buffer, (uint32_t*)&count);
-	uint8_t	 *tx_bytes = (uint8_t*)tx_words;
 
 	if (tx_words) {
 		ret_val = cc_lpf3_saci_send_sector_tx(bank, tx_words, count, &cmd);
@@ -770,8 +769,10 @@ int cc_lpf3_write_main(struct flash_bank *bank, const uint8_t *buffer,
 
 	if (ret_val != ERROR_OK)
 		LOG_INFO("Flash Sector programming failure");
-	else
+	else {
+		uint8_t	 *tx_bytes = (uint8_t*)tx_words;
 		ret_val = cc_lpf3_saci_verify_main(bank, tx_bytes, count);
+	}
 
 	if (ret_val != ERROR_OK)
 		LOG_INFO("Verify Main failure");
