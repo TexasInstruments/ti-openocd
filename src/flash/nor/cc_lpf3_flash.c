@@ -101,13 +101,13 @@ static int cc_lpf3_write_to_AP(struct flash_bank *bank, uint64_t ap_num, unsigne
 	int ret_val = ERROR_FAIL;
 
 	if (!ap) {
-		LOG_DEBUG("write_to_AP: failed to get AP");
+		LOG_ERROR("write_to_AP: failed to get AP");
 		return ret_val;
 	}
 
 	ret_val = dap_queue_ap_write(ap, reg, value);
 	if (ret_val != ERROR_OK) {
-		LOG_DEBUG("write_to_AP: failed to queue a write request");
+		LOG_ERROR("write_to_AP: failed to queue a write request");
 		dap_put_ap(ap);
 		return ret_val;
 	}
@@ -115,7 +115,7 @@ static int cc_lpf3_write_to_AP(struct flash_bank *bank, uint64_t ap_num, unsigne
 	ret_val = dap_run(dap);
 	dap_put_ap(ap);
 	if (ret_val != ERROR_OK) {
-		LOG_DEBUG("write_to_AP: dap_run failed");
+		LOG_ERROR("write_to_AP: dap_run failed");
 		return ret_val;
 	}
 
@@ -132,13 +132,13 @@ int cc_lpf3_read_from_AP(struct flash_bank *bank, uint64_t ap_num, unsigned int 
 	struct adiv5_ap *ap = dap_get_ap(dap, ap_num);
 
 	if (!ap) {
-		LOG_DEBUG("DEBUGSS: failed to get AP %d", (uint32_t)ap_num);
+		LOG_ERROR("DEBUGSS: failed to get AP %d", (uint32_t)ap_num);
 		return ERROR_FAIL;
 	}
 
 	int ret_val = dap_queue_ap_read(ap, reg, data);
 	if (ret_val != ERROR_OK) {
-		LOG_DEBUG("DEBUGSS: failed to queue a read request %x", reg);
+		LOG_INFO("DEBUGSS: failed to queue a read request %x", reg);
 		dap_put_ap(ap);
 		return ret_val;
 	}
@@ -146,7 +146,7 @@ int cc_lpf3_read_from_AP(struct flash_bank *bank, uint64_t ap_num, unsigned int 
 	ret_val = dap_run(dap);
 	dap_put_ap(ap);
 	if (ret_val != ERROR_OK) {
-		LOG_DEBUG("DEBUGSS: dap_run failed reg:%d ret_val:%d", reg, ret_val);
+		LOG_INFO("DEBUGSS: dap_run failed reg:%d ret_val:%d", reg, ret_val);
 		return ret_val;
 	}
 
@@ -166,18 +166,18 @@ static int cc_lpf3_bulk_write_to_AP(struct flash_bank *bank, uint64_t ap_num, un
 	int ret_val = ERROR_FAIL;
 
 	if (!ap) {
-		LOG_DEBUG("bulk_write_to_AP: failed to get AP");
+		LOG_ERROR("bulk_write_to_AP: failed to get AP");
 		return ret_val;
 	}
 
 	if (!data) {
-		LOG_DEBUG("bulk_write_to_AP: failed, no buffer");
+		LOG_ERROR("bulk_write_to_AP: failed, no buffer");
 		return ret_val;
 	}
 
 	if (count > CC2340R5_MAIN_FLASH_SECTOR_SIZE)
 	{
-		LOG_INFO("bulk_write_to_AP: length more than CC2340R5_MAIN_FLASH_SECTOR_SIZE");\
+		LOG_ERROR("bulk_write_to_AP: length more than CC2340R5_MAIN_FLASH_SECTOR_SIZE");\
 		return ret_val;
 	}
 
@@ -244,7 +244,7 @@ int cc_lpf3_prepare_write(struct flash_bank *bank)
 	saci_cmd.common.cmd.cmd_id = SACI_MISC_NO_OPERATION;
 	ret_val = cc_lpf3_saci_send_cmd(bank, saci_cmd);
 	if (ERROR_OK != ret_val)	{
-		LOG_INFO("NOP Fail - ret %d", ret_val);
+		LOG_ERROR("NOP Fail - ret %d", ret_val);
 		return ret_val;
 	}
 
@@ -399,7 +399,7 @@ static int cc_lpf3_saci_read_response(struct flash_bank *bank, SACI_RESP_T *cmd_
 	int ret_val = cc_lpf3_wait_rx_data_ready(bank);
 
 	if (ret_val != ERROR_OK)	{
-		LOG_INFO("Rx Ctrl Error: %d", ret_val);
+		LOG_ERROR("Rx Ctrl Error: %d", ret_val);
 		return ERROR_FAIL;
 	}
 
@@ -428,7 +428,7 @@ static int cc_lpf3_saci_read_response(struct flash_bank *bank, SACI_RESP_T *cmd_
 		resp_len = (cmd_resp->data_word_count) & 0xFF;
 		for (uint8_t resp_word_idx = 0; resp_word_idx < resp_len; resp_word_idx++) {
 			if (ERROR_OK != cc_lpf3_wait_rx_data_ready(bank)) {
-				LOG_INFO("Multi RX Fail");
+				LOG_ERROR("Multi RX Fail");
 				return ERROR_FAIL;
 			}
 			cc_lpf3_read_from_AP(bank, DEBUGSS_SEC_AP, SEC_AP_RXD, &cmd_resp->status_flag);
@@ -544,7 +544,7 @@ int cc_lpf3_do_blank_check(struct flash_bank *bank)
 	} else if (bank->base == CC23XX_FLASH_BASE_MAIN) {
 		ret_val = cc_lpf3_saci_verify_main(bank, NULL, 0);
 	} else {
-		LOG_INFO("ERROR : Unknown bank for blank check");
+		LOG_ERROR("ERROR : Unknown bank for blank check");
 		return ERROR_FAIL;
 	}
 
@@ -576,15 +576,17 @@ int cc_lpf3_saci_verify_ccfg(struct flash_bank *bank, const uint8_t* buffer)
 
 	ret_val = cc_lpf3_saci_send_cmd(bank, cmd);
 	if (ret_val != ERROR_OK) {
-		LOG_INFO("VERIFY CCFG Send Fail: %d", ret_val);
+		LOG_ERROR("VERIFY CCFG Send Fail: %d", ret_val);
 		return ERROR_FAIL;
 	}
 
 	//check the cmd response
 	ret_val = cc_lpf3_saci_read_response(bank, &cmd_resp);
-	LOG_INFO("Verify ccfg Result: 0x%x Blank Check %d", cmd_resp.result, cmd.flash_verify_ccfg_sector.blank_check);
-	if (ret_val != ERROR_OK) {
-		LOG_INFO("VERIFY CCFG ReadResp Fail: %d", ret_val);
+	LOG_INFO("Verify CCFG Result: 0x%x Blank Check %d", cmd_resp.result, cmd.flash_verify_ccfg_sector.blank_check);
+	if (ret_val != ERROR_OK || cmd_resp.result != SCR_SUCCESS) {
+		LOG_ERROR("CMD Resp : 0x%x", ret_val);
+		if (cmd_resp.result == SCR_CRC32_MISMATCH)
+			LOG_ERROR("Make sure FW is built with post build script to include CRC values in CCFG section");
 		return ERROR_FAIL;
 	}
 
@@ -619,8 +621,8 @@ int cc_lpf3_saci_verify_main(struct flash_bank *bank, const uint8_t* buffer, uin
 	//check the cmd response
 	ret_val = cc_lpf3_saci_read_response(bank, &cmd_resp);
 	LOG_INFO("Verify Main Result: 0x%x Blank Check: %d", cmd_resp.result, cmd.flash_verify_main_sectors.blank_check);
-	if (ret_val != ERROR_OK)	{
-		LOG_INFO("VERIFY MAIN ReadResp Fail: %d", ret_val);
+	if (ret_val != ERROR_OK || cmd_resp.result != SCR_SUCCESS) {
+		LOG_ERROR("CMD Resp : 0x%x", ret_val);
 		return ERROR_FAIL;
 	}
 
@@ -641,13 +643,13 @@ int cc_lpf3_saci_erase(struct flash_bank *bank)
 	cmd.flash_erase_chip.key = FLASH_KEY;
 	ret_val = cc_lpf3_saci_send_cmd(bank, cmd);
 	if (ret_val != ERROR_OK) {
-		LOG_INFO("Erase Command Failure");
+		LOG_ERROR("Erase Command Failure");
 		return ERROR_FAIL;
 	}
 	//check the cmd response
 	ret_val = cc_lpf3_saci_read_response(bank, &cmd_resp);
 	if (ret_val != ERROR_OK) {
-		LOG_INFO("ReadResp Fail for erase: %d", ret_val);
+		LOG_ERROR("ReadResp Fail for erase: %d", ret_val);
 		return ERROR_FAIL;
 	}
 
@@ -664,7 +666,7 @@ int cc_lpf3_saci_send_tx_words(struct flash_bank *bank, uint32_t *tx_data, uint3
 	//Set TXD (0x200) with command
 	ret_val = cc_lpf3_bulk_write_to_AP(bank, DEBUGSS_SEC_AP, SEC_AP_TXD, tx_data, length);
 	if (ERROR_OK != ret_val) {
-		LOG_INFO("TxWrite returned : %d", ret_val);
+		LOG_ERROR("Tx Write returned with error resp: %d", ret_val);
 		return ERROR_FAIL;
 	}
 
@@ -687,7 +689,7 @@ int cc_lpf3_write_ccfg(struct flash_bank *bank, const uint8_t *buffer,
 	{
 		tx_words = malloc(MAX_CCFG_SIZE_IN_BYTES);
 		if (!tx_words) {
-			LOG_INFO("Memory Allocation Fail");
+			LOG_ERROR("Memory Allocation Fail");
 			return ERROR_FAIL;
 		}
 		memset(tx_words, 0xFF, MAX_CCFG_SIZE);
@@ -704,28 +706,28 @@ int cc_lpf3_write_ccfg(struct flash_bank *bank, const uint8_t *buffer,
 
 	ret_val = cc_lpf3_saci_send_cmd(bank, cmd);
 	if (ERROR_OK != ret_val) {
-		LOG_INFO("CCFG cmd fail");
+		LOG_ERROR("CCFG Cmd Fail");
 		ret_val = ERROR_FAIL;
 		goto FREE_AND_RETURN;
 	}
 
 	ret_val = cc_lpf3_saci_send_tx_words(bank, tx_words, MAX_CCFG_SIZE);
 	if (ERROR_OK != ret_val) {
-		LOG_INFO("CCFG Write");
+		LOG_ERROR("CCFG Write Fail");
 		ret_val = ERROR_FAIL;
 		goto FREE_AND_RETURN;
 	}
 
 	ret_val = cc_lpf3_saci_read_response(bank, &cmd_resp);
 	if (ERROR_OK != ret_val) {
-		LOG_INFO("CCFG Resp fail");
+		LOG_ERROR("CCFG Resp Fail");
 		ret_val = ERROR_FAIL;
 		goto FREE_AND_RETURN;
 	}
 
 	ret_val = cc_lpf3_saci_verify_ccfg(bank, buffer);
 	if (ERROR_OK != ret_val) {
-		LOG_INFO("CCFG Verify Fail");
+		LOG_ERROR("CCFG Verify Fail");
 		ret_val = ERROR_FAIL;
 		goto FREE_AND_RETURN;
 	}
@@ -754,7 +756,7 @@ int cc_lpf3_write_main(struct flash_bank *bank, const uint8_t *buffer,
 	/*Program Main through pipeline Command*/
 	ret_val = cc_lpf3_saci_send_cmd(bank, cmd);
 	if (ret_val != ERROR_OK) {
-		LOG_INFO("main Flash cmd failed");
+		LOG_ERROR("Main Flash cmd failed");
 		return ERROR_FAIL;
 	}
 
@@ -763,19 +765,19 @@ int cc_lpf3_write_main(struct flash_bank *bank, const uint8_t *buffer,
 	if (tx_words) {
 		ret_val = cc_lpf3_saci_send_sector_tx(bank, tx_words, count, &cmd);
 	} else {
-		LOG_INFO("Memory Allocation Fail");
+		LOG_ERROR("Memory Allocation Fail");
 		ret_val = ERROR_FAIL;
 	}
 
 	if (ret_val != ERROR_OK)
-		LOG_INFO("Flash Sector programming failure");
+		LOG_ERROR("Flash Sector programming failure");
 	else {
 		uint8_t	 *tx_bytes = (uint8_t*)tx_words;
 		ret_val = cc_lpf3_saci_verify_main(bank, tx_bytes, count);
 	}
 
 	if (ret_val != ERROR_OK)
-		LOG_INFO("Verify Main failure");
+		LOG_ERROR("Verify Main failure");
 
 	if (tx_words)
 		free(tx_words);
@@ -792,7 +794,7 @@ int cc_lpf3_saci_send_cmd(struct flash_bank *bank, SACI_PARAM_T tx_cmd)
 	int ret_val = cc_lpf3_wait_tx_data_clear(bank);
 
 	if (ret_val != ERROR_OK) {
-		LOG_INFO("saci_send_cmd: TxCtrl  %d", ret_val);
+		LOG_ERROR("saci_send_cmd: TxCtrl  %d", ret_val);
 		return ERROR_FAIL;
 	}
 
@@ -800,17 +802,17 @@ int cc_lpf3_saci_send_cmd(struct flash_bank *bank, SACI_PARAM_T tx_cmd)
 	//Indicates that TXD contains the first word of a command
 	ret_val = cc_lpf3_write_to_AP(bank, DEBUGSS_SEC_AP, SEC_AP_TXCTL, SACI_TXCTRL_CMD_START);
 	if (ERROR_OK != ret_val)
-		LOG_INFO("saci_send_cmd: cmd Start Fail: %d", ret_val);
+		LOG_ERROR("saci_send_cmd: cmd Start Fail: %d", ret_val);
 
 	//Set TXD (0x200) with command
 	ret_val = cc_lpf3_write_to_AP(bank, DEBUGSS_SEC_AP, SEC_AP_TXD, tx_cmd.common.val);
 	if (ERROR_OK != ret_val)
-		LOG_INFO("saci_send_cmd:cmd_id-%d Write Failed : %d", tx_cmd.common.cmd.cmd_id, ret_val);
+		LOG_ERROR("saci_send_cmd:cmd_id-%d Write Failed : %d", tx_cmd.common.cmd.cmd_id, ret_val);
 
 	if (cmd_length > (sizeof(SACI_PARAM_COMMON_T)/sizeof(uint32_t))) {
 		ret_val = cc_lpf3_wait_tx_data_clear(bank);
 		if (ERROR_OK != ret_val) {
-			LOG_INFO("saci_send_cmd : Cmd Clear Fail: %d", ret_val);
+			LOG_ERROR("saci_send_cmd : Cmd Clear Fail: %d", ret_val);
 			return ERROR_FAIL;
 		}
 
@@ -818,25 +820,25 @@ int cc_lpf3_saci_send_cmd(struct flash_bank *bank, SACI_PARAM_T tx_cmd)
 		//Indicates that TXD contains the first word of a command
 		ret_val = cc_lpf3_write_to_AP(bank, DEBUGSS_SEC_AP, SEC_AP_TXCTL, 0);//~SACI_TXCTRL_CMD_START);
 		if (ERROR_OK != ret_val) {
-			LOG_INFO("write_multi_param : Cmd Start Clear Fail: %d", ret_val);
+			LOG_ERROR("write_multi_param : Cmd Start Clear Fail: %d", ret_val);
 			return ERROR_FAIL;
 		}
 
 		uint32_t *param_words = (uint32_t*)malloc(sizeof(SACI_PARAM_T));
 		if (param_words == NULL)
 		{
-			LOG_INFO("Param words memory allocation failure");
+			LOG_ERROR("Param words memory allocation failure");
 			return ERROR_FAIL;
 		}
 		// clear allocated memory
-		memset (param_words, 0, sizeof(SACI_PARAM_T));
+		memset(param_words, 0, sizeof(SACI_PARAM_T));
 		memcpy(param_words, &tx_cmd, sizeof(SACI_PARAM_T));
 
 		for (uint8_t cmd_word = 1; cmd_word<cmd_length; cmd_word++) {
 			//Set TXD (0x200) with command
 			ret_val = cc_lpf3_write_to_AP(bank, DEBUGSS_SEC_AP, SEC_AP_TXD, param_words[cmd_word]);
 			if (ERROR_OK != ret_val) {
-				LOG_INFO("saci_send_cmd:cmd_id-%d Write Failed : %d", tx_cmd.common.cmd.cmd_id, ret_val);
+				LOG_ERROR("saci_send_cmd:cmd_id-%d Write Failed : %d", tx_cmd.common.cmd.cmd_id, ret_val);
 				free(param_words);
 				return ERROR_FAIL;
 			}
@@ -847,7 +849,7 @@ int cc_lpf3_saci_send_cmd(struct flash_bank *bank, SACI_PARAM_T tx_cmd)
 	//Read TXCTL
 	ret_val = cc_lpf3_wait_tx_data_clear(bank);
 	if(ret_val != ERROR_OK) {
-		LOG_INFO("Tx Ctrl Error: %d", ret_val);
+		LOG_ERROR("Tx Ctrl Error: %d", ret_val);
 		return ERROR_FAIL;
 	}
 
@@ -872,7 +874,7 @@ int cc_lpf3_check_boot_status(struct flash_bank *bank)
 	*************************************************/
 	ret_val = cc_lpf3_read_from_AP(bank, DEBUGSS_CFG_AP, CFG_AP_DEVICE_STATUS, &result);
 	if (ERROR_OK != ret_val)
-		LOG_INFO("Read Error in BootStatus:");
+		LOG_INFO("Read Error in BootStatus");
 
 	//CFG-AP: DEVICESTATUS:BOOTSTA (bit 15:8 in the DEVICESTATUS register in CFG-AP)
 	bootsta = (uint8_t)((result>>8) & 0xFF);

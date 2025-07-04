@@ -32,13 +32,14 @@ static const struct cc23xx_part_info cc23xx_parts[] = {
 };
 
 /*
- * Update the flash stage CC23xx/CC27xx devices
+ * Update the flash stage CC23xx devices
  */
-int cc_lpf3_check_device_memory_info(struct cc_lpf3_flash_bank *cc_lpf3_info, uint32_t device_id, uint32_t part_id){
+int cc_lpf3_check_device_memory_info(struct cc_lpf3_flash_bank *cc_lpf3_info, uint32_t device_id, uint32_t part_id)
+{
 	//padding shuld be taken care
 	uint8_t total_parts = sizeof(cc23xx_parts)/sizeof(struct cc23xx_part_info);
 
-	while(total_parts--){
+	while(total_parts--) {
 		if(cc23xx_parts[total_parts].device_id == (device_id & 0x0FFFFFFF) &&
 			cc23xx_parts[total_parts].part_id == part_id ) {
 			cc_lpf3_info->main_flash_size_kb = cc23xx_parts[total_parts].flash_size;
@@ -82,7 +83,7 @@ FLASH_BANK_COMMAND_HANDLER(cc_lpf3_flash_bank_command)
 }
 
 /*
- * Update the flash stage CC23xx/CC27xx devices
+ * Update the flash stage CC23xx devices
  */
 bool cc_lpf3_check_allowed_flash_op(CC23XX_FLASH_OP_T op)
 {
@@ -99,24 +100,33 @@ bool cc_lpf3_check_allowed_flash_op(CC23XX_FLASH_OP_T op)
 		break;
 
 	case CC23XX_FLASH_STAGE_ERASE:
-		if(op == CC23XX_FLASH_OP_PROG_CCFG) {
+		if(op == CC23XX_FLASH_OP_REVERT_STAGE) {
+			op_allowed =1;
+			flash_stage = CC23XX_FLASH_STAGE_INIT;
+		} else if(op == CC23XX_FLASH_OP_PROG_CCFG) {
 			op_allowed =1;
 			flash_stage = CC23XX_FLASH_STAGE_CCFG;
-		}else if (op == CC23XX_FLASH_OP_PROG_MAIN){
+		}else if (op == CC23XX_FLASH_OP_PROG_MAIN) {
 			op_allowed =1;
 			flash_stage = CC23XX_FLASH_STAGE_MAIN;
 		}
 		break;
 
 	case (CC23XX_FLASH_STAGE_CCFG):
-		if(op == CC23XX_FLASH_OP_PROG_MAIN) {
+		if(op == CC23XX_FLASH_OP_REVERT_STAGE) {
+			op_allowed =1;
+			flash_stage = CC23XX_FLASH_STAGE_ERASE;
+		}else if(op == CC23XX_FLASH_OP_PROG_MAIN) {
 			op_allowed =1;
 			flash_stage = CC23XX_FLASH_STAGE_COMPLETE;
 		}
 		break;
 
 	case (CC23XX_FLASH_STAGE_MAIN):
-		if(op == CC23XX_FLASH_OP_PROG_CCFG) {
+		if(op == CC23XX_FLASH_OP_REVERT_STAGE) {
+			op_allowed =1;
+			flash_stage = CC23XX_FLASH_STAGE_ERASE;
+		}else if(op == CC23XX_FLASH_OP_PROG_CCFG) {
 			op_allowed =1;
 			flash_stage = CC23XX_FLASH_STAGE_COMPLETE;
 		}
@@ -210,7 +220,10 @@ static int cc_lpf3_erase(struct flash_bank *bank, unsigned int first, unsigned i
 		return ERROR_FAIL;
 
 	if (cc_lpf3_check_allowed_flash_op(CC23XX_FLASH_OP_CHIP_ERASE)) {
-		cc_lpf3_saci_erase(bank);
+		if (ERROR_OK != cc_lpf3_saci_erase(bank)) {
+			cc_lpf3_check_allowed_flash_op(CC23XX_FLASH_OP_REVERT_STAGE);
+			return ERROR_FAIL;
+		}
 	}
 
 	return ERROR_OK;
@@ -224,7 +237,8 @@ static int cc_lpf3_write(struct flash_bank *bank, const uint8_t *buffer,
 	LOG_INFO("cc_lpf3_write : bank->base :"TARGET_ADDR_FMT" offset - 0x%x count - 0x%x", bank->base, offset, count);
 
 	// Execute the CFG-AP read to make sure device is in the correct state
-	cc_lpf3_check_device_info(bank);
+	if (ERROR_OK != cc_lpf3_check_device_info(bank))
+		return ERROR_TARGET_INIT_FAILED;
 
 	if (ERROR_OK != cc_lpf3_prepare_write(bank))
 		//device not in SACI mode, so sec-ap command can't be executed
@@ -240,18 +254,18 @@ static int cc_lpf3_write(struct flash_bank *bank, const uint8_t *buffer,
 	}
 
 	//Program CCFG
-	if (bank->base == CC23XX_FLASH_BASE_CCFG && cc_lpf3_check_allowed_flash_op(CC23XX_FLASH_OP_PROG_CCFG) ) {
+	if (bank->base == CC23XX_FLASH_BASE_CCFG && cc_lpf3_check_allowed_flash_op(CC23XX_FLASH_OP_PROG_CCFG)) {
 		if (ERROR_OK != cc_lpf3_write_ccfg(bank, buffer, offset, count))
 		{
-			//Revert Stage
+			cc_lpf3_check_allowed_flash_op(CC23XX_FLASH_OP_REVERT_STAGE);
 		}
 	}
 
 	//Program MAIN Bank
 	if (bank->base == CC23XX_FLASH_BASE_MAIN && cc_lpf3_check_allowed_flash_op(CC23XX_FLASH_OP_PROG_MAIN)) {
-		if (ERROR_OK == cc_lpf3_write_main(bank, buffer, offset, count))
+		if (ERROR_OK != cc_lpf3_write_main(bank, buffer, offset, count))
 		{
-			//revert stage
+			cc_lpf3_check_allowed_flash_op(CC23XX_FLASH_OP_REVERT_STAGE);
 		}
 	}
 	return ERROR_OK;
