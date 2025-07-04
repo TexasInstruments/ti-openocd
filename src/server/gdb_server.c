@@ -3725,7 +3725,11 @@ static int gdb_input_inner(struct connection *connection)
 		}
 
 		if (gdb_con->ctrl_c) {
-			if (target->state == TARGET_RUNNING) {
+			/* target->state in RESET is introduced to handle the case when CPU undergoes a reset while the
+			 * device goes through standby procedure.Probably better(or may be required) to have a conditional
+			 * warning, but that could be annoying for the user
+			 */
+			if (target->state == TARGET_RUNNING || target->state == TARGET_RESET) {
 				struct target *t = target;
 				if (target->rtos)
 					target->rtos->gdb_target_for_threadid(connection, target->rtos->current_threadid, &t);

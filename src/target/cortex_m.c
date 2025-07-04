@@ -928,17 +928,7 @@ static int cortex_m_poll_one(struct target *target)
 
 	if (cortex_m->dcb_dhcsr_cumulated_sticky & S_RESET_ST) {
 		cortex_m->dcb_dhcsr_cumulated_sticky &= ~S_RESET_ST;
-		/** @todo  find a method (probably requires patch) to handle this in upstream
-		 * This is a TEMPERORY CHANGE
-		 * Two changes are required
-		 * 1. Device specific check should be removed. Check with community how to do this
-		 * 2. Second check should be based on read from DHCSR register not debug_reason
-		 */
-		if ((strcmp(target->cmd_name, "cc2340r5.cpu") == 0) &&
-			(target->debug_reason >= DBG_REASON_BREAKPOINT)) {
-				target->state = TARGET_RUNNING;
-			}
-		 else if (target->state != TARGET_RESET) {
+		if (target->state != TARGET_RESET) {
 			target->state = TARGET_RESET;
 			LOG_TARGET_INFO(target, "external reset detected");
 		}
