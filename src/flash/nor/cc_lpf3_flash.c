@@ -3,7 +3,7 @@
 /***************************************************************************
  * Copyright (C) 2025 Texas Instruments Incorporated - https://www.ti.com/
  *
- * CC2340R5 specific flash driver algorithms from Texas Instruments.
+ * LPF3 specific flash driver algorithms from Texas Instruments.
  ***************************************************************************/
 
 #ifdef HAVE_CONFIG_H
@@ -12,7 +12,6 @@
 
 #include "jtag/interface.h"
 #include "imp.h"
-#include "cc2340r5.h"
 #include "cc_lpf3_flash.h"
 #include <helper/bits.h>
 #include <helper/time_support.h>
@@ -23,7 +22,7 @@
 
 /*
  * Calculate CRC as per the polynomial mentioned in
- * CC2340R5 TRM section 9.2(SWCU193A – APRIL 2023 – REVISED AUGUST 2024)
+ * CC2340R5/CC2745R10 TRM section 9.2(SWCU193A – APRIL 2023 – REVISED AUGUST 2024)
  */
 static uint32_t cc_lpf3_calculate_crc(const uint8_t *data_ptr, uint32_t length)
 {
@@ -62,14 +61,14 @@ uint32_t* cc_lpf3_flash_sector_padding(const uint8_t *buffer, uint32_t *count)
 
 	//Allocate maximum size that may be required in case of padding
 	//Caller function should make sure allocated memory is freed
-	sector_aligned_data = (uint32_t*)malloc(start_count + CC2340R5_MAIN_FLASH_SECTOR_SIZE);
+	sector_aligned_data = (uint32_t*)malloc(start_count + LPF3_MAIN_FLASH_SECTOR_SIZE);
 
 	if (sector_aligned_data == NULL) {
 		LOG_ERROR("Failed to allocate memory for sector aligned data");
 		return NULL;
 	}
-	if (start_count%CC2340R5_MAIN_FLASH_SECTOR_SIZE)
-		bytes_to_pad = CC2340R5_MAIN_FLASH_SECTOR_SIZE - start_count%CC2340R5_MAIN_FLASH_SECTOR_SIZE;
+	if (start_count%LPF3_MAIN_FLASH_SECTOR_SIZE)
+		bytes_to_pad = LPF3_MAIN_FLASH_SECTOR_SIZE - start_count%LPF3_MAIN_FLASH_SECTOR_SIZE;
 
 	memset((uint8_t*)(sector_aligned_data)+start_count, 0xFF, bytes_to_pad);
 	memcpy(sector_aligned_data, buffer, start_count);
@@ -154,7 +153,7 @@ int cc_lpf3_read_from_AP(struct flash_bank *bank, uint64_t ap_num, unsigned int 
 }
 
 /*
- * Bulk Write to AP function can write upto CC2340R5_MAIN_FLASH_SECTOR_SIZE words
+ * Bulk Write to AP function can write upto LPF3_MAIN_FLASH_SECTOR_SIZE words
  * into the AP specified in the argument
  */
 static int cc_lpf3_bulk_write_to_AP(struct flash_bank *bank, uint64_t ap_num, unsigned int reg, uint32_t *data,
@@ -175,9 +174,9 @@ static int cc_lpf3_bulk_write_to_AP(struct flash_bank *bank, uint64_t ap_num, un
 		return ret_val;
 	}
 
-	if (count > CC2340R5_MAIN_FLASH_SECTOR_SIZE)
+	if (count > LPF3_MAIN_FLASH_SECTOR_SIZE)
 	{
-		LOG_ERROR("bulk_write_to_AP: length more than CC2340R5_MAIN_FLASH_SECTOR_SIZE");\
+		LOG_ERROR("bulk_write_to_AP: length more than LPF3_MAIN_FLASH_SECTOR_SIZE");\
 		return ret_val;
 	}
 
@@ -444,7 +443,7 @@ static int cc_lpf3_saci_read_response(struct flash_bank *bank, SACI_RESP_T *cmd_
 static int cc_lpf3_saci_send_sector_tx(struct flash_bank *bank, uint32_t *tx_data,	uint32_t length, SACI_PARAM_T *cmd)
 {
 	uint32_t sector_index=0;
-	uint32_t num_sectors= (length + CC2340R5_MAIN_FLASH_SECTOR_SIZE -1)/(CC2340R5_MAIN_FLASH_SECTOR_SIZE);
+	uint32_t num_sectors= (length + LPF3_MAIN_FLASH_SECTOR_SIZE -1)/(LPF3_MAIN_FLASH_SECTOR_SIZE);
 	uint32_t base_resp_seq_number = cmd->flash_prog_main_pipelined.resp_seq_num;
 	uint32_t curr_resp_seq_num, last_resp_seq_num = base_resp_seq_number - 1;
 	SACI_RESP_T cmd_resp;
@@ -539,9 +538,9 @@ int cc_lpf3_do_blank_check(struct flash_bank *bank)
 {
 	int ret_val;
 
-	if (bank->base == CC23XX_FLASH_BASE_CCFG) {
+	if (bank->base == LPF3_FLASH_BASE_CCFG) {
 		ret_val = cc_lpf3_saci_verify_ccfg(bank, NULL);
-	} else if (bank->base == CC23XX_FLASH_BASE_MAIN) {
+	} else if (bank->base == LPF3_FLASH_BASE_MAIN) {
 		ret_val = cc_lpf3_saci_verify_main(bank, NULL, 0);
 	} else {
 		LOG_ERROR("ERROR : Unknown bank for blank check");
@@ -607,12 +606,12 @@ int cc_lpf3_saci_verify_main(struct flash_bank *bank, const uint8_t* buffer, uin
 	cmd.flash_verify_main_sectors.first_sector_addr = (uint32_t)bank->base;
 
 	// if data is there it should be sector aligned, otherwise just do blank check
-	if (buffer && (count%CC2340R5_MAIN_FLASH_SECTOR_SIZE == 0)) {
+	if (buffer && (count%LPF3_MAIN_FLASH_SECTOR_SIZE == 0)) {
 		cmd.flash_verify_main_sectors.byte_count = count;
 		/*calculate crc32 using cc_lpf3_calculate_crc function*/
 		cmd.flash_verify_main_sectors.expected_crc32 = cc_lpf3_calculate_crc(buffer, count);
 	} else {
-		cmd.flash_verify_main_sectors.byte_count = CC2340R5_MAIN_FLASH_SIZE;
+		cmd.flash_verify_main_sectors.byte_count = bank->size;
 		cmd.flash_verify_main_sectors.blank_check = 1;
 	}
 

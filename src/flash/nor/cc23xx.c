@@ -3,9 +3,10 @@
 /***************************************************************************
  * Copyright (C) 2025 Texas Instruments Incorporated - https://www.ti.com/
  *
- * NOR flash driver for CC2340R5 from Texas Instruments.
+ * NOR flash driver for CC23XX from Texas Instruments.
  * TRM : https://www.ti.com/lit/pdf/swcu193
  * Datasheet : https://www.ti.com/lit/gpn/cc2340r5
+ * Addition device documentation: https://dev.ti.com/tirex/explore?devices=CC23X0
  ***************************************************************************/
 
 #ifdef HAVE_CONFIG_H
@@ -15,7 +16,7 @@
 #include "jtag/interface.h"
 #include "imp.h"
 #include "time.h"
-#include "cc2340r5.h"
+#include "cc23xx.h"
 #include "cc_lpf3_flash.h"
 #include <helper/bits.h>
 #include <helper/time_support.h>
@@ -23,12 +24,17 @@
 #include <target/armv7m.h>
 #include <target/cortex_m.h>
 
-//*** OPN *** DEVICEID(28bits) *** PARTID *** FLASH *** RAM//
+//*** OPN *** DEVICEID(28bits) *** PARTID *** FLASH *** RAM ***//
 static const struct cc23xx_part_info cc23xx_parts[] = {
+	{"CC2340R21E0RGER", 0xBB8502F, 0x80A0F9EC, 512, 36},
 	{"CC2340R52E0RGER", 0xBB8402F, 0x800F2DDA, 512, 36},
 	{"CC2340R52E0RKPR", 0xBB8402F, 0x803B2DDA, 512, 36},
+	{"CC2340R22E0RKPR", 0xBB8402F, 0x809E2DDA, 256, 36},
 	{"CC2340R53E0RKPR", 0xBBAE02F, 0x804D1A96, 512, 64},
-	{"CC2340R53E0YBGR", 0xBBAE02F, 0x802A1A96, 512, 64}
+	{"CC2340R53E0YBGR", 0xBBAE02F, 0x802A1A96, 512, 64},
+	{"CC2341R10E0RKPR", 0xBBCC02F, 0x803299B5, 1024, 96},
+	{"CC2341R10E0xxxR", 0xBBCC02F, 0x80D999B5, 1024, 96},
+	{"CC2341R10E0RSLR", 0xBBCC02F, 0x801899B5, 1024, 96},
 };
 
 /*
@@ -61,8 +67,8 @@ FLASH_BANK_COMMAND_HANDLER(cc_lpf3_flash_bank_command)
 	struct cc_lpf3_flash_bank *cc_lpf3_info;
 
 	switch (bank->base) {
-	case CC23XX_FLASH_BASE_CCFG:
-	case CC23XX_FLASH_BASE_MAIN:
+	case LPF3_FLASH_BASE_CCFG:
+	case LPF3_FLASH_BASE_MAIN:
 		break;
 	default:
 		LOG_ERROR("Invalid bank address " TARGET_ADDR_FMT, bank->base);
@@ -77,7 +83,7 @@ FLASH_BANK_COMMAND_HANDLER(cc_lpf3_flash_bank_command)
 
 	bank->driver_priv = cc_lpf3_info;
 
-	cc_lpf3_info->sector_size = CC2340R5_MAIN_FLASH_SECTOR_SIZE;
+	cc_lpf3_info->sector_size = LPF3_MAIN_FLASH_SECTOR_SIZE;
 
 	return ERROR_OK;
 }
@@ -163,7 +169,7 @@ static int get_cc_lpf3_info(struct flash_bank *bank, struct command_invocation *
 		return ERROR_FLASH_BANK_NOT_PROBED;
 
 	command_print_sameline(cmd,
-			"\nTI CC2340R5 information: Chip is "
+			"\nTI CC23XX information: Chip is "
 				"%s Device Unique ID: %d\n",
 				cc_lpf3_info->name,
 				cc_lpf3_info->version);
@@ -254,7 +260,7 @@ static int cc_lpf3_write(struct flash_bank *bank, const uint8_t *buffer,
 	}
 
 	//Program CCFG
-	if (bank->base == CC23XX_FLASH_BASE_CCFG && cc_lpf3_check_allowed_flash_op(CC23XX_FLASH_OP_PROG_CCFG)) {
+	if (bank->base == LPF3_FLASH_BASE_CCFG && cc_lpf3_check_allowed_flash_op(CC23XX_FLASH_OP_PROG_CCFG)) {
 		if (ERROR_OK != cc_lpf3_write_ccfg(bank, buffer, offset, count))
 		{
 			cc_lpf3_check_allowed_flash_op(CC23XX_FLASH_OP_REVERT_STAGE);
@@ -262,7 +268,7 @@ static int cc_lpf3_write(struct flash_bank *bank, const uint8_t *buffer,
 	}
 
 	//Program MAIN Bank
-	if (bank->base == CC23XX_FLASH_BASE_MAIN && cc_lpf3_check_allowed_flash_op(CC23XX_FLASH_OP_PROG_MAIN)) {
+	if (bank->base == LPF3_FLASH_BASE_MAIN && cc_lpf3_check_allowed_flash_op(CC23XX_FLASH_OP_PROG_MAIN)) {
 		if (ERROR_OK != cc_lpf3_write_main(bank, buffer, offset, count))
 		{
 			cc_lpf3_check_allowed_flash_op(CC23XX_FLASH_OP_REVERT_STAGE);
@@ -283,12 +289,12 @@ static int cc_lpf3_verify(struct flash_bank *bank,
 {
 	int retval;
 
-	if (bank->base == CC23XX_FLASH_BASE_CCFG) {
+	if (bank->base == LPF3_FLASH_BASE_CCFG) {
 		retval = cc_lpf3_saci_verify_ccfg(bank, buffer);
-	} else if (bank->base == CC23XX_FLASH_BASE_MAIN) {
-		if (count%CC2340R5_MAIN_FLASH_SECTOR_SIZE)
+	} else if (bank->base == LPF3_FLASH_BASE_MAIN) {
+		if (count%LPF3_MAIN_FLASH_SECTOR_SIZE)
 		{
-			count = count+ (CC2340R5_MAIN_FLASH_SECTOR_SIZE - count%CC2340R5_MAIN_FLASH_SECTOR_SIZE);
+			count = count + (LPF3_MAIN_FLASH_SECTOR_SIZE - count%LPF3_MAIN_FLASH_SECTOR_SIZE);
 		}
 		retval = cc_lpf3_saci_verify_main(bank, buffer, count);
 	} else {
@@ -324,13 +330,13 @@ static int cc_lpf3_probe(struct flash_bank *bank)
 	}
 
 	switch (bank->base) {
-	case CC23XX_FLASH_BASE_CCFG:
-		bank->size = CC2340R5_MAIN_FLASH_SECTOR_SIZE;
+	case LPF3_FLASH_BASE_CCFG:
+		bank->size = LPF3_MAIN_FLASH_SECTOR_SIZE;
 		bank->num_sectors = 0x1;
 		break;
-	case CC23XX_FLASH_BASE_MAIN:
+	case LPF3_FLASH_BASE_MAIN:
 		bank->size = (cc_lpf3_info->main_flash_size_kb * 1024);
-		bank->num_sectors = (CC2340R5_MAIN_FLASH_SIZE) / (CC2340R5_MAIN_FLASH_SECTOR_SIZE);
+		bank->num_sectors = (bank->size) / (LPF3_MAIN_FLASH_SECTOR_SIZE);
 		break;
 	default:
 		LOG_ERROR("%s: Invalid bank address " TARGET_ADDR_FMT, cc_lpf3_info->name,
@@ -347,6 +353,7 @@ static int cc_lpf3_probe(struct flash_bank *bank)
 		bank->sectors[i].size = cc_lpf3_info->sector_size;
 		bank->sectors[i].is_erased = -1;
 	}
+	LOG_INFO("Device: %s, Flash: %dkb, RAM: %dkb", cc_lpf3_info->name, cc_lpf3_info->main_flash_size_kb, cc_lpf3_info->sram_size_kb);
 
 	return ERROR_OK;
 }
@@ -392,7 +399,7 @@ COMMAND_HANDLER(cc23xx_reset_run_command)
 	return ERROR_OK;
 }
 
-static const struct command_registration cc2340r5_exec_command_handlers[] = {
+static const struct command_registration cc23xx_exec_command_handlers[] = {
 	{
 		.name = "reset_run",
 		.handler = cc23xx_reset_run_command,
@@ -413,17 +420,17 @@ static const struct command_registration cc2340r5_exec_command_handlers[] = {
 
 static const struct command_registration cc_lpf3_command_handlers[] = {
 	{
-		.name = "cc2340r5",
+		.name = "cc23xx",
 		.mode = COMMAND_EXEC,
-		.help = "cc2340r5 flash command group",
+		.help = "cc23xx flash command group",
 		.usage = "",
-		.chain = cc2340r5_exec_command_handlers,
+		.chain = cc23xx_exec_command_handlers,
 	},
 	COMMAND_REGISTRATION_DONE
 };
 
-const struct flash_driver cc2340r5_flash = {
-	.name = "cc2340r5",
+const struct flash_driver cc23xx_flash = {
+	.name = "cc23xx",
 	.flash_bank_command = cc_lpf3_flash_bank_command,
 	.commands = cc_lpf3_command_handlers,
 	.erase = cc_lpf3_erase,

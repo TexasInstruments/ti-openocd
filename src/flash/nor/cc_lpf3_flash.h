@@ -118,6 +118,31 @@
 #define SACI_ERASE_CHIP_RETAIN_WORD_CNT (3)	//Keeping the max value of chip erase retain words. To be checked for each devices
 #define SACI_GET_TEST_ID_WORD_CNT		(4)	//Keeping the max value of word count. To be checked for each devices
 
+/// Size of one MAIN flash sector, in number of bytes
+#define LPF3_MAIN_FLASH_SECTOR_SIZE 	(0x800U) //2Kb
+
+#define LPF3_FLASH_BASE_CCFG			(0x4E020000)
+#define LPF3_FLASH_BASE_MAIN			(0x0)
+
+/// Size of one MAIN flash sector, in number of bytes
+#define MAIN_SECTOR_SIZE_WORDS			(512)
+
+/// The maximum CCFG size of all devices that uses SACI.
+#define MAX_CCFG_SIZE				MAIN_SECTOR_SIZE_WORDS
+#define MAX_CCFG_SIZE_IN_BYTES			(MAX_CCFG_SIZE * 4)
+
+#define BOOT_CCFG_START_IDX				(0x0)
+#define CENTRAL_CCFG_START_IDX			(0x10)
+#define DEBUG_CCFG_START_IDX			(0x7D0)
+
+#define BOOT_CCFG_CRC_LEN				(0x0C)
+#define CENTRAL_CCFG_CRC_LEN			(0x73C)
+#define DEBUG_CCFG_CRC_LEN				(0x2C)
+
+/// The maximum user record size of all devices that uses SACI.
+#define MAX_CCFG_USER_RECORD_SIZE		(128)
+#define MAX_CCFG_USER_RECORD_SIZE_WORDS (32)
+
 //SACI command result
 typedef enum SACI_CMD_RESULT{
 	SCR_SUCCESS							= 0x00, //Command executed successfully
