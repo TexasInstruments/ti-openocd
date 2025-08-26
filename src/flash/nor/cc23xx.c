@@ -17,7 +17,7 @@
 #include "imp.h"
 #include "time.h"
 #include "cc23xx.h"
-#include "cc_lpf3_flash.h"
+#include "cc_lpf3_base.h"
 #include <helper/bits.h>
 #include <helper/time_support.h>
 #include <target/arm_adi_v5.h>
@@ -25,7 +25,7 @@
 #include <target/cortex_m.h>
 
 //*** OPN *** DEVICEID(28bits) *** PARTID *** FLASH *** RAM ***//
-static const struct cc23xx_part_info cc23xx_parts[] = {
+static const struct cc_lpf3_part_info cc23xx_parts[] = {
 	{"CC2340R21E0RGER", 0xBB8502F, 0x80A0F9EC, 512, 36},
 	{"CC2340R52E0RGER", 0xBB8402F, 0x800F2DDA, 512, 36},
 	{"CC2340R52E0RKPR", 0xBB8402F, 0x803B2DDA, 512, 36},
@@ -37,13 +37,16 @@ static const struct cc23xx_part_info cc23xx_parts[] = {
 	{"CC2341R10E0RSLR", 0xBBCC02F, 0x801899B5, 1024, 96},
 };
 
+/* CC23XX specific flash stage state */
+static CC_LPF3_FLASH_STAGE_T flash_stage = CC_LPF3_FLASH_STAGE_INIT;
+
 /*
  * Update the flash stage CC23xx devices
  */
-int cc_lpf3_check_device_memory_info(struct cc_lpf3_flash_bank *cc_lpf3_info, uint32_t device_id, uint32_t part_id)
+static int cc23xx_check_device_memory_info(struct cc_lpf3_flash_bank *cc_lpf3_info, uint32_t device_id, uint32_t part_id)
 {
-	//padding shuld be taken care
-	uint8_t total_parts = sizeof(cc23xx_parts)/sizeof(struct cc23xx_part_info);
+	//padding should be taken care
+	uint8_t total_parts = sizeof(cc23xx_parts)/sizeof(struct cc_lpf3_part_info);
 
 	while(total_parts--) {
 		if(cc23xx_parts[total_parts].device_id == (device_id & 0x0FFFFFFF) &&
@@ -51,6 +54,7 @@ int cc_lpf3_check_device_memory_info(struct cc_lpf3_flash_bank *cc_lpf3_info, ui
 			cc_lpf3_info->main_flash_size_kb = cc23xx_parts[total_parts].flash_size;
 			cc_lpf3_info->sram_size_kb = cc23xx_parts[total_parts].ram_size;
 			cc_lpf3_info->name = cc23xx_parts[total_parts].partname;
+			cc_lpf3_info->main_flash_num_banks = 1;
 			return ERROR_OK;
 		}
 	}
@@ -59,82 +63,52 @@ int cc_lpf3_check_device_memory_info(struct cc_lpf3_flash_bank *cc_lpf3_info, ui
 }
 
 /*
- *	OpenOCD command interface
- */
-
-FLASH_BANK_COMMAND_HANDLER(cc_lpf3_flash_bank_command)
-{
-	struct cc_lpf3_flash_bank *cc_lpf3_info;
-
-	switch (bank->base) {
-	case LPF3_FLASH_BASE_CCFG:
-	case LPF3_FLASH_BASE_MAIN:
-		break;
-	default:
-		LOG_ERROR("Invalid bank address " TARGET_ADDR_FMT, bank->base);
-		return ERROR_FAIL;
-	}
-
-	cc_lpf3_info = calloc(sizeof(struct cc_lpf3_flash_bank), 1);
-	if (!cc_lpf3_info) {
-		LOG_ERROR("%s: Out of memory for cc_lpf3_info!", __func__);
-		return ERROR_FAIL;
-	}
-
-	bank->driver_priv = cc_lpf3_info;
-
-	cc_lpf3_info->sector_size = LPF3_MAIN_FLASH_SECTOR_SIZE;
-
-	return ERROR_OK;
-}
-
-/*
  * Update the flash stage CC23xx devices
  */
-bool cc_lpf3_check_allowed_flash_op(CC23XX_FLASH_OP_T op)
+static bool cc23xx_check_allowed_flash_op(int op)
 {
-	static CC23XX_FLASH_STAGE_T flash_stage = CC23XX_FLASH_STAGE_INIT;
 	bool op_allowed = 0;
+	CC_LPF3_FLASH_OP_T cc_op = (CC_LPF3_FLASH_OP_T)op;
 
 	switch (flash_stage) {
-	case CC23XX_FLASH_STAGE_INIT:
-		if(op == CC23XX_FLASH_OP_CHIP_ERASE) {
-			op_allowed =1;
-			flash_stage = CC23XX_FLASH_STAGE_ERASE;
+	case CC_LPF3_FLASH_STAGE_INIT:
+		if(cc_op == CC_LPF3_FLASH_OP_CHIP_ERASE) {
+			op_allowed = 1;
+			flash_stage = CC_LPF3_FLASH_STAGE_ERASE;
 			LOG_INFO("Performing Chip Erase");
 		}
 		break;
 
-	case CC23XX_FLASH_STAGE_ERASE:
-		if(op == CC23XX_FLASH_OP_REVERT_STAGE) {
-			op_allowed =1;
-			flash_stage = CC23XX_FLASH_STAGE_INIT;
-		} else if(op == CC23XX_FLASH_OP_PROG_CCFG) {
-			op_allowed =1;
-			flash_stage = CC23XX_FLASH_STAGE_CCFG;
-		}else if (op == CC23XX_FLASH_OP_PROG_MAIN) {
-			op_allowed =1;
-			flash_stage = CC23XX_FLASH_STAGE_MAIN;
+	case CC_LPF3_FLASH_STAGE_ERASE:
+		if(cc_op == CC_LPF3_FLASH_OP_REVERT_STAGE) {
+			op_allowed = 1;
+			flash_stage = CC_LPF3_FLASH_STAGE_INIT;
+		} else if(cc_op == CC_LPF3_FLASH_OP_PROG_CCFG) {
+			op_allowed = 1;
+			flash_stage = CC_LPF3_FLASH_STAGE_CCFG;
+		} else if (cc_op == CC_LPF3_FLASH_OP_PROG_MAIN) {
+			op_allowed = 1;
+			flash_stage = CC_LPF3_FLASH_STAGE_MAIN;
 		}
 		break;
 
-	case (CC23XX_FLASH_STAGE_CCFG):
-		if(op == CC23XX_FLASH_OP_REVERT_STAGE) {
-			op_allowed =1;
-			flash_stage = CC23XX_FLASH_STAGE_ERASE;
-		}else if(op == CC23XX_FLASH_OP_PROG_MAIN) {
-			op_allowed =1;
-			flash_stage = CC23XX_FLASH_STAGE_COMPLETE;
+	case CC_LPF3_FLASH_STAGE_CCFG:
+		if(cc_op == CC_LPF3_FLASH_OP_REVERT_STAGE) {
+			op_allowed = 1;
+			flash_stage = CC_LPF3_FLASH_STAGE_ERASE;
+		} else if(cc_op == CC_LPF3_FLASH_OP_PROG_MAIN) {
+			op_allowed = 1;
+			flash_stage = CC_LPF3_FLASH_STAGE_COMPLETE;
 		}
 		break;
 
-	case (CC23XX_FLASH_STAGE_MAIN):
-		if(op == CC23XX_FLASH_OP_REVERT_STAGE) {
-			op_allowed =1;
-			flash_stage = CC23XX_FLASH_STAGE_ERASE;
-		}else if(op == CC23XX_FLASH_OP_PROG_CCFG) {
-			op_allowed =1;
-			flash_stage = CC23XX_FLASH_STAGE_COMPLETE;
+	case CC_LPF3_FLASH_STAGE_MAIN:
+		if(cc_op == CC_LPF3_FLASH_OP_REVERT_STAGE) {
+			op_allowed = 1;
+			flash_stage = CC_LPF3_FLASH_STAGE_ERASE;
+		} else if(cc_op == CC_LPF3_FLASH_OP_PROG_CCFG) {
+			op_allowed = 1;
+			flash_stage = CC_LPF3_FLASH_STAGE_COMPLETE;
 		}
 		break;
 
@@ -143,27 +117,46 @@ bool cc_lpf3_check_allowed_flash_op(CC23XX_FLASH_OP_T op)
 		break;
 	}
 
-	if (flash_stage == CC23XX_FLASH_STAGE_COMPLETE)
+	if (flash_stage == CC_LPF3_FLASH_STAGE_COMPLETE)
 	{
-		flash_stage = CC23XX_FLASH_STAGE_INIT;
+		flash_stage = CC_LPF3_FLASH_STAGE_INIT;
 		LOG_INFO("MAIN and CCFG Programmed");
 	}
 
-	if(op == CC23XX_FLASH_OP_CHIP_ERASE && op_allowed == 0)
+	if(cc_op == CC_LPF3_FLASH_OP_CHIP_ERASE && op_allowed == 0)
 	{
 		LOG_INFO("Erase request discarded as main OR ccfg section is programmed");
 	}
 
 	return op_allowed;
 }
+
 /*
- * Chip identification and status
+ *	OpenOCD command interface
  */
-static int get_cc_lpf3_info(struct flash_bank *bank, struct command_invocation *cmd)
+
+FLASH_BANK_COMMAND_HANDLER(cc23xx_flash_bank_command)
+{
+	int retval = cc_lpf3_base_flash_bank_command(bank);
+	if (retval != ERROR_OK)
+		return retval;
+
+	/* Register CC23XX specific operations */
+	struct cc_lpf3_chip_ops ops = {
+		.check_allowed_flash_op = cc23xx_check_allowed_flash_op,
+		.check_device_memory_info = cc23xx_check_device_memory_info
+	};
+	cc_lpf3_base_register_chip_ops(bank, &ops);
+
+	return ERROR_OK;
+}
+
+/*
+ * Chip identification and status - CC23XX specific implementation
+ */
+static int cc23xx_get_info(struct flash_bank *bank, struct command_invocation *cmd)
 {
 	struct cc_lpf3_flash_bank *cc_lpf3_info = bank->driver_priv;
-	printf("Get info\n");
-	printf("%5s\n", cc_lpf3_info->name);
 
 	if (cc_lpf3_info->did == 0)
 		return ERROR_FLASH_BANK_NOT_PROBED;
@@ -178,182 +171,6 @@ static int get_cc_lpf3_info(struct flash_bank *bank, struct command_invocation *
 				cc_lpf3_info->main_flash_size_kb,
 				cc_lpf3_info->main_flash_num_banks,
 				cc_lpf3_info->sram_size_kb);
-
-	return ERROR_OK;
-}
-
-static int cc_lpf3_read_part_info(struct flash_bank *bank)
-{
-	struct cc_lpf3_flash_bank *cc_lpf3_info = bank->driver_priv;
-	uint32_t did = 0, pid = 0;
-
-	/* Read and parse chip identification register */
-	//read the device id
-	if (ERROR_OK == cc_lpf3_read_from_AP(bank, DEBUGSS_CFG_AP, CFG_AP_DEVICE_ID_READ, &did))
-		cc_lpf3_info->did = did;
-	else
-		return ERROR_FAIL;
-
-	//read the device id
-	if (ERROR_OK == cc_lpf3_read_from_AP(bank, DEBUGSS_CFG_AP, CFG_AP_PART_ID_READ, &pid))
-		cc_lpf3_info->pid = pid;
-	else
-		return ERROR_FAIL;
-
-	if (ERROR_FAIL == cc_lpf3_check_device_memory_info(cc_lpf3_info, did, pid))
-		return ERROR_FAIL;
-
-	cc_lpf3_info->did = did;
-	cc_lpf3_info->main_flash_num_banks = 1;
-	cc_lpf3_info->flash_word_size_bytes = 8;
-
-	return ERROR_OK;
-}
-
-static int cc_lpf3_protect(struct flash_bank *bank, int set,
-			 unsigned int first, unsigned int last)
-{
-	LOG_INFO("cc23xx-Protected Sectors need to be checked in the flashed CCFG");
-
-	return ERROR_OK;
-}
-
-static int cc_lpf3_erase(struct flash_bank *bank, unsigned int first, unsigned int last)
-{
-	LOG_INFO("cc_lpf3_erase: Chip Erase will be done based on the flash state");
-
-	if (BOOTSTA_BOOT_ENTERED_SACI != cc_lpf3_check_boot_status(bank))
-		return ERROR_FAIL;
-
-	if (cc_lpf3_check_allowed_flash_op(CC23XX_FLASH_OP_CHIP_ERASE)) {
-		if (ERROR_OK != cc_lpf3_saci_erase(bank)) {
-			cc_lpf3_check_allowed_flash_op(CC23XX_FLASH_OP_REVERT_STAGE);
-			return ERROR_FAIL;
-		}
-	}
-
-	return ERROR_OK;
-}
-
-static int cc_lpf3_write(struct flash_bank *bank, const uint8_t *buffer,
-			uint32_t offset, uint32_t count)
-{
-	struct cc_lpf3_flash_bank *cc_lpf3_info = bank->driver_priv;
-
-	LOG_INFO("cc_lpf3_write : bank->base :"TARGET_ADDR_FMT" offset - 0x%x count - 0x%x", bank->base, offset, count);
-
-	// Execute the CFG-AP read to make sure device is in the correct state
-	if (ERROR_OK != cc_lpf3_check_device_info(bank))
-		return ERROR_TARGET_INIT_FAILED;
-
-	if (ERROR_OK != cc_lpf3_prepare_write(bank))
-		//device not in SACI mode, so sec-ap command can't be executed
-		return ERROR_TARGET_INIT_FAILED;
-
-	if (cc_lpf3_info->did == 0)
-		return ERROR_FLASH_BANK_NOT_PROBED;
-
-	if (offset % cc_lpf3_info->flash_word_size_bytes) {
-		LOG_ERROR("%s: Offset 0x%0" PRIx32 " Must be aligned to %d bytes",
-			  cc_lpf3_info->name, offset, cc_lpf3_info->flash_word_size_bytes);
-		return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
-	}
-
-	//Program CCFG
-	if (bank->base == LPF3_FLASH_BASE_CCFG && cc_lpf3_check_allowed_flash_op(CC23XX_FLASH_OP_PROG_CCFG)) {
-		if (ERROR_OK != cc_lpf3_write_ccfg(bank, buffer, offset, count))
-		{
-			cc_lpf3_check_allowed_flash_op(CC23XX_FLASH_OP_REVERT_STAGE);
-		}
-	}
-
-	//Program MAIN Bank
-	if (bank->base == LPF3_FLASH_BASE_MAIN && cc_lpf3_check_allowed_flash_op(CC23XX_FLASH_OP_PROG_MAIN)) {
-		if (ERROR_OK != cc_lpf3_write_main(bank, buffer, offset, count))
-		{
-			cc_lpf3_check_allowed_flash_op(CC23XX_FLASH_OP_REVERT_STAGE);
-		}
-	}
-	return ERROR_OK;
-}
-
-static int cc_lpf3_read(struct flash_bank *bank,
-			uint8_t *buffer, uint32_t offset, uint32_t count)
-{
-	LOG_INFO("CC23xx Devices doesnt support Read through SACI interface");
-	return ERROR_OK;
-}
-
-static int cc_lpf3_verify(struct flash_bank *bank,
-			const uint8_t *buffer, uint32_t offset, uint32_t count)
-{
-	int retval;
-
-	if (bank->base == LPF3_FLASH_BASE_CCFG) {
-		retval = cc_lpf3_saci_verify_ccfg(bank, buffer);
-	} else if (bank->base == LPF3_FLASH_BASE_MAIN) {
-		if (count%LPF3_MAIN_FLASH_SECTOR_SIZE)
-		{
-			count = count + (LPF3_MAIN_FLASH_SECTOR_SIZE - count%LPF3_MAIN_FLASH_SECTOR_SIZE);
-		}
-		retval = cc_lpf3_saci_verify_main(bank, buffer, count);
-	} else {
-		LOG_ERROR("Host requesting wrong banks to verify");
-		return ERROR_FAIL;
-	}
-	return retval;
-}
-
-static int cc_lpf3_probe(struct flash_bank *bank)
-{
-	struct cc_lpf3_flash_bank *cc_lpf3_info = bank->driver_priv;
-	int retval;
-
-	/*
-	 * If this is a cc_lpf3 chip, it has flash; probe() is just
-	 * to figure out how much is present.  Only do it once.
-	 */
-	if (cc_lpf3_info->did != 0)
-		return ERROR_OK;
-	/*
-	 * cc_lpf3_read_part_info() already handled error checking and
-	 * reporting.  Note that it doesn't write, so we don't care about
-	 * whether the target is halted or not.
-	 */
-	retval = cc_lpf3_read_part_info(bank);
-	if (retval != ERROR_OK)
-		return retval;
-
-	if (bank->sectors) {
-		free(bank->sectors);
-		bank->sectors = NULL;
-	}
-
-	switch (bank->base) {
-	case LPF3_FLASH_BASE_CCFG:
-		bank->size = LPF3_MAIN_FLASH_SECTOR_SIZE;
-		bank->num_sectors = 0x1;
-		break;
-	case LPF3_FLASH_BASE_MAIN:
-		bank->size = (cc_lpf3_info->main_flash_size_kb * 1024);
-		bank->num_sectors = (bank->size) / (LPF3_MAIN_FLASH_SECTOR_SIZE);
-		break;
-	default:
-		LOG_ERROR("%s: Invalid bank address " TARGET_ADDR_FMT, cc_lpf3_info->name,
-			  bank->base);
-		return ERROR_FAIL;
-	}
-	bank->sectors = calloc(bank->num_sectors, sizeof(struct flash_sector));
-	if (!bank->sectors) {
-		LOG_ERROR("%s: Out of memory for sectors!", cc_lpf3_info->name);
-		return ERROR_FAIL;
-	}
-	for (unsigned int i = 0; i < bank->num_sectors; i++) {
-		bank->sectors[i].offset = i * cc_lpf3_info->sector_size;
-		bank->sectors[i].size = cc_lpf3_info->sector_size;
-		bank->sectors[i].is_erased = -1;
-	}
-	LOG_INFO("Device: %s, Flash: %dkb, RAM: %dkb", cc_lpf3_info->name, cc_lpf3_info->main_flash_size_kb, cc_lpf3_info->sram_size_kb);
 
 	return ERROR_OK;
 }
@@ -384,7 +201,7 @@ COMMAND_HANDLER(cc23xx_reset_run_command)
 	if (retval != ERROR_OK)
 		return retval;
 
-	while ( retval == BOOTSTA_BOOT_ENTERED_SACI) {
+	while (retval == BOOTSTA_BOOT_ENTERED_SACI) {
 		//send NOP also
 		retval = cc_lpf3_prepare_write(bank);
 		if (retval != BOOTSTA_BOOT_ENTERED_SACI)
@@ -394,7 +211,7 @@ COMMAND_HANDLER(cc23xx_reset_run_command)
 	//exit saci run command
 	cc_lpf3_exit_saci_run(bank);
 
-	retval =  cc_lpf3_check_boot_status(bank);
+	retval = cc_lpf3_check_boot_status(bank);
 	LOG_INFO("reset_run boot status 0x%x", retval);
 	return ERROR_OK;
 }
@@ -418,7 +235,7 @@ static const struct command_registration cc23xx_exec_command_handlers[] = {
 	COMMAND_REGISTRATION_DONE
 };
 
-static const struct command_registration cc_lpf3_command_handlers[] = {
+static const struct command_registration cc23xx_command_handlers[] = {
 	{
 		.name = "cc23xx",
 		.mode = COMMAND_EXEC,
@@ -431,16 +248,16 @@ static const struct command_registration cc_lpf3_command_handlers[] = {
 
 const struct flash_driver cc23xx_flash = {
 	.name = "cc23xx",
-	.flash_bank_command = cc_lpf3_flash_bank_command,
-	.commands = cc_lpf3_command_handlers,
-	.erase = cc_lpf3_erase,
-	.protect = cc_lpf3_protect,
-	.write = cc_lpf3_write,
-	.read = cc_lpf3_read,
-	.probe = cc_lpf3_probe,
-	.verify = cc_lpf3_verify,
-	.auto_probe = cc_lpf3_probe,
+	.flash_bank_command = cc23xx_flash_bank_command,
+	.commands = cc23xx_command_handlers,
+	.erase = cc_lpf3_base_erase,
+	.protect = cc_lpf3_base_protect,
+	.write = cc_lpf3_base_write,
+	.read = cc_lpf3_base_read,
+	.probe = cc_lpf3_base_probe,
+	.verify = cc_lpf3_base_verify,
+	.auto_probe = cc_lpf3_base_probe,
 	.erase_check = default_flash_blank_check,
-	.info = get_cc_lpf3_info,
+	.info = cc23xx_get_info,
 	.free_driver_priv = default_flash_free_driver_priv,
 };

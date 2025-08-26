@@ -25,6 +25,8 @@ NOR_DRIVERS = \
 	%D%/cc3220sf.c \
 	%D%/cc26xx.c \
 	%D%/cc23xx.c \
+	%D%/cc27xx.c \
+	%D%/cc_lpf3_base.c \
 	%D%/cc_lpf3_flash.c \
 	%D%/cfi.c \
 	%D%/dsp5680xx_flash.c \
@@ -94,6 +96,7 @@ NORHEADERS = \
 	%D%/driver.h \
 	%D%/imp.h \
 	%D%/non_cfi.h \
+	%D%/cc_lpf3_base.h \
 	%D%/ocl.h \
 	%D%/sfdp.h \
 	%D%/spi.h \

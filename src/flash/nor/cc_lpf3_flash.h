@@ -120,16 +120,22 @@
 
 /// Size of one MAIN flash sector, in number of bytes
 #define LPF3_MAIN_FLASH_SECTOR_SIZE 	(0x800U) //2Kb
+#define LPF3_SCFG_FLASH_SECTOR_SIZE 	(0x400U) //1Kb
 
 #define LPF3_FLASH_BASE_CCFG			(0x4E020000)
+#define LPF3_FLASH_BASE_SCFG			(0x4E040000)
 #define LPF3_FLASH_BASE_MAIN			(0x0)
 
 /// Size of one MAIN flash sector, in number of bytes
 #define MAIN_SECTOR_SIZE_WORDS			(512)
+/// Size of one SCFG flash sector, in number of bytes
+#define SCFG_SECTOR_SIZE_WORDS			(256)
 
 /// The maximum CCFG size of all devices that uses SACI.
 #define MAX_CCFG_SIZE				MAIN_SECTOR_SIZE_WORDS
+#define MAX_SCFG_SIZE				SCFG_SECTOR_SIZE_WORDS
 #define MAX_CCFG_SIZE_IN_BYTES			(MAX_CCFG_SIZE * 4)
+#define MAX_SCFG_SIZE_IN_BYTES			(MAX_SCFG_SIZE * 4)
 
 #define BOOT_CCFG_START_IDX				(0x0)
 #define CENTRAL_CCFG_START_IDX			(0x10)
@@ -138,6 +144,9 @@
 #define BOOT_CCFG_CRC_LEN				(0x0C)
 #define CENTRAL_CCFG_CRC_LEN			(0x73C)
 #define DEBUG_CCFG_CRC_LEN				(0x2C)
+
+#define SCFG_BYTE_COUNT					(0xE4)
+#define SCFG_DATA_WORDS					(SCFG_BYTE_COUNT/4)
 
 /// The maximum user record size of all devices that uses SACI.
 #define MAX_CCFG_USER_RECORD_SIZE		(128)
@@ -190,6 +199,8 @@ typedef enum SACI_CMD_ID{
 	SACI_MODE_REQ_FLASHLESS_TEST		= 0x16, //Device mode: Request flashless test mode (password)
 	SACI_MODE_REQ_TOOLS_CLIENT			= 0x17, //Device mode: Request flashless tools client mode
 	SACI_FLASH_VERIFY_FCFG_SECTOR		= 0x18, //Flash programming: Verify FCFG sector
+	SACI_FLASH_PROG_SCFG_SECTOR			= 0x1A, //Program the entire SCFG sector with option to leave the Scfg.keyRingCfg region unprogrammed
+	SACI_FLASH_VERIFY_SCFG_SECTOR		= 0x1B  //Verify the contents of records within the SCFG sector against supplied CRC32 values.
 }SACI_CMD_ID_T;
 
 #pragma pack(push, 1)
@@ -230,6 +241,14 @@ typedef struct {
 	uint16_t		  	reserved0 : 15;			 //Reserved
 	uint32_t		  	key;					 //Key used to avoid accidental flash operation (\see FLASH_API_KEY)
 } SACI_PARAM_FLASH_PROG_CCFG_SECTOR_T;
+
+//SC_FLASH_PROG_SCFG_SECTOR command parameters
+typedef struct {
+	uint8_t    			cmd_id;					 //Command ID
+	uint8_t				resp_seq_num;			 //Optional sequence number, included in the response header
+	uint16_t		  	byte_count;				 //Number of bytes to program (pData must be padded to N x 32-bit)
+	uint32_t		  	key;					 //Key used to avoid accidental flash operation (\see FLASH_API_KEY)
+} SACI_PARAM_FLASH_PROG_SCFG_SECTOR_T;
 
 //SC_FLASH_PROG_CCFG_USER_REC command parameters
 typedef struct {
@@ -283,6 +302,15 @@ typedef struct {
 	uint32_t		  	exp_debug_cfg_crc32; 	//Expected CRC32 of debug configuration part of CCFG, used if check_exp_crc = 1
 } SACI_PARAM_FLASH_VERIFY_CCFG_SECTOR_T;
 
+//SC_FLASH_VERIFY_SCFG_SECTOR command parameters
+typedef struct {
+	uint8_t    			cmd_id;				//Command ID
+	uint8_t				resp_seq_num;		//Optional sequence number, included in the response header
+	uint16_t		  	check_exp_crc : 1;	//0: Validity check of embedded CRCs only; 1: also check CRCs against reference values
+	uint16_t		  	reserved0 : 15;	  	//Reserved
+	uint32_t		  	expected_crc32;		//Expected CRC32
+} SACI_PARAM_FLASH_VERIFY_SCFG_SECTOR_T;
+
 //SC_LIFECYCLE_INCR_STATE command parameters
 typedef struct {
 	uint8_t    			cmd_id;				//Command ID
@@ -325,42 +353,34 @@ typedef struct {
 } SACI_RESP_T;
 
 struct cc_lpf3_flash_bank {
-	/* chip id register */
-	uint32_t did;
-	/* Device Unique ID register */
-	uint32_t pid;
-	uint8_t version;
+    /* chip id register */
+    uint32_t did;
+    /* Device Unique ID register */
+    uint32_t pid;
+    uint8_t version;
 
-	/* Pointer to name */
-	const char *name;
 
-	/* Decoded flash information */
-	uint32_t data_flash_size_kb;
-	uint32_t main_flash_size_kb;
-	uint32_t main_flash_num_banks;
-	uint32_t sector_size;
-	/* Decoded SRAM information */
-	uint32_t sram_size_kb;
+    /* Pointer to name */
+    const char *name;
 
-	/* Flash word size: 64 bit = 8, 128bit = 16 bytes */
-	uint8_t flash_word_size_bytes;
 
-	/* Protection register stuff */
-	uint32_t protect_reg_base;
-	uint32_t protect_reg_count;
-};
+    /* Decoded flash information */
+    uint32_t data_flash_size_kb;
+    uint32_t main_flash_size_kb;
+    uint32_t main_flash_num_banks;
+    uint32_t sector_size;
+    /* Decoded SRAM information */
+    uint32_t sram_size_kb;
 
-struct cc_lpf3_part_info {
-	const char 	*partname;
-	uint16_t 	part;
-	uint8_t 	variant;
-};
 
-struct cc_lpf3_family_info {
-	const char 	*familyname;
-	uint16_t 	partnum;
-	uint8_t 	part_count;
-	const struct cc_lpf3_part_info *part_info;
+    /* Flash word size: 64 bit = 8, 128bit = 16 bytes */
+    uint8_t flash_word_size_bytes;
+
+
+    /* Protection register stuff */
+    uint32_t protect_reg_base;
+    uint32_t protect_reg_count;
+	void *driver_priv; /**< Private driver storage pointer */
 };
 #pragma pack(pop)
 
@@ -370,11 +390,13 @@ typedef union {
 	SACI_PARAM_DEBUG_SUBMIT_AUTH_T				debug_submit_auth;
 	SACI_PARAM_FLASH_ERASE_CHIP_T				flash_erase_chip;
 	SACI_PARAM_FLASH_PROG_CCFG_SECTOR_T			flash_prog_ccfg_sector;
+	SACI_PARAM_FLASH_PROG_SCFG_SECTOR_T			flash_prog_scfg_sector;
 	SACI_PARAM_FLASH_PROG_CCFG_USER_REC_T		flash_prog_ccfg_user_rec;
 	SACI_PARAM_FLASH_PROG_MAIN_SECTOR_T			flash_prog_main_sector;
 	SACI_PARAM_FLASH_PROG_MAIN_PIPELINED_T		flash_prog_main_pipelined;
 	SACI_PARAM_FLASH_VERIFY_MAIN_SECTORS_T		flash_verify_main_sectors;
 	SACI_PARAM_FLASH_VERIFY_CCFG_SECTOR_T		flash_verify_ccfg_sector;
+	SACI_PARAM_FLASH_VERIFY_SCFG_SECTOR_T		flash_verify_scfg_sector;
 	SACI_PARAM_LIFECYCLE_INCR_STATE_T			life_cycle_incr_state;
 	SACI_PARAM_LIFECYCLE_REQ_FIRST_BDAY_T		life_cycle_first_bday;
 	SACI_PARAM_BLDR_APP_RESET_DEVICE_T			bldr_app_reset_device;
@@ -383,6 +405,8 @@ typedef union {
 int cc_lpf3_check_device_info(struct flash_bank *bank);
 int cc_lpf3_prepare_write(struct flash_bank *bank);
 int cc_lpf3_write_ccfg(struct flash_bank *bank, const uint8_t *buffer,
+				 uint32_t offset, uint32_t count);
+int cc_lpf3_write_scfg(struct flash_bank *bank, const uint8_t *buffer,
 				 uint32_t offset, uint32_t count);
 int cc_lpf3_write_main(struct flash_bank *bank, const uint8_t *buffer,
 				 uint32_t offset, uint32_t count);
@@ -393,6 +417,7 @@ int cc_lpf3_read_from_AP(struct flash_bank *bank, uint64_t ap_num,
 int cc_lpf3_saci_erase(struct flash_bank *bank);
 int cc_lpf3_saci_send_tx_words(struct flash_bank *bank, uint32_t *tx_data, uint32_t length);
 int cc_lpf3_saci_verify_ccfg(struct flash_bank *bank, const uint8_t* buffer);
+int cc_lpf3_saci_verify_scfg(struct flash_bank *bank, const uint8_t* buffer, uint32_t count);
 int cc_lpf3_saci_verify_main(struct flash_bank *bank, const uint8_t* buffer, uint32_t count);
 int cc_lpf3_do_blank_check(struct flash_bank *bank);
 int cc_lpf3_exit_saci_run(struct flash_bank *bank);
