@@ -242,7 +242,7 @@ int cc_lpf3_prepare_write(struct flash_bank *bank)
 
 	saci_cmd.common.cmd.cmd_id = SACI_MISC_NO_OPERATION;
 	ret_val = cc_lpf3_saci_send_cmd(bank, saci_cmd);
-	if (ERROR_OK != ret_val)	{
+	if (ret_val != ERROR_OK)	{
 		LOG_ERROR("NOP Fail - ret %d", ret_val);
 		return ret_val;
 	}
@@ -286,6 +286,9 @@ static int cc_lpf3_get_cmd_word_length(SACI_PARAM_T cmd)
 	case SACI_FLASH_PROG_CCFG_SECTOR:
 		return SIZE_IN_WORDS(SACI_PARAM_FLASH_PROG_CCFG_SECTOR_T);
 		break;
+	case SACI_FLASH_PROG_SCFG_SECTOR:
+		return SIZE_IN_WORDS(SACI_PARAM_FLASH_PROG_SCFG_SECTOR_T);
+		break;
 	case SACI_FLASH_PROG_CCFG_USER_REC:
 		return SIZE_IN_WORDS(SACI_PARAM_FLASH_PROG_CCFG_USER_REC_T);
 		break;
@@ -297,6 +300,9 @@ static int cc_lpf3_get_cmd_word_length(SACI_PARAM_T cmd)
 		break;
 	case SACI_FLASH_VERIFY_CCFG_SECTOR:
 		return SIZE_IN_WORDS(SACI_PARAM_FLASH_VERIFY_CCFG_SECTOR_T);
+		break;
+	case SACI_FLASH_VERIFY_SCFG_SECTOR:
+		return SIZE_IN_WORDS(SACI_PARAM_FLASH_VERIFY_SCFG_SECTOR_T);
 		break;
 	case SACI_LIFECYCLE_INCR_STATE:
 		return SIZE_IN_WORDS(SACI_PARAM_LIFECYCLE_INCR_STATE_T);
@@ -593,6 +599,45 @@ int cc_lpf3_saci_verify_ccfg(struct flash_bank *bank, const uint8_t* buffer)
 }
 
 /*
+ * SCFG verify command
+ */
+int cc_lpf3_saci_verify_scfg(struct flash_bank *bank, const uint8_t* buffer, uint32_t count)
+{
+    SACI_PARAM_T cmd;
+    SACI_RESP_T cmd_resp;
+    int ret_val;
+
+    memset((uint8_t*)&cmd, 0, sizeof(SACI_PARAM_T));
+
+	cc_lpf3_update_cmd_word(SACI_FLASH_VERIFY_SCFG_SECTOR, &cmd, 0);
+
+    if (buffer) {
+		cmd.flash_verify_scfg_sector.check_exp_crc = 1;  // Check against expected CRC
+		cmd.flash_verify_scfg_sector.expected_crc32 = cc_lpf3_calculate_crc(buffer, SCFG_BYTE_COUNT);
+    }
+
+    ret_val = cc_lpf3_saci_send_cmd(bank, cmd);
+    if (ret_val != ERROR_OK) {
+        LOG_ERROR("SCFG Verify Send Cmd Fail");
+        return ERROR_FAIL;
+    }
+
+    ret_val = cc_lpf3_saci_read_response(bank, &cmd_resp);
+	LOG_INFO("Verify SCFG Result: 0x%x", cmd_resp.result);
+    if (ret_val != ERROR_OK) {
+        LOG_ERROR("SCFG Verify Read Response Fail");
+        return ERROR_FAIL;
+    }
+
+    if (cmd_resp.result != SCR_SUCCESS) {
+        LOG_ERROR("SCFG Verify Failed with result: 0x%x", cmd_resp.result);
+        return ERROR_FAIL;
+    }
+
+    return ERROR_OK;
+}
+
+/*
  * Main Flash bank verify command
  */
 int cc_lpf3_saci_verify_main(struct flash_bank *bank, const uint8_t* buffer, uint32_t count)
@@ -664,7 +709,7 @@ int cc_lpf3_saci_send_tx_words(struct flash_bank *bank, uint32_t *tx_data, uint3
 
 	//Set TXD (0x200) with command
 	ret_val = cc_lpf3_bulk_write_to_AP(bank, DEBUGSS_SEC_AP, SEC_AP_TXD, tx_data, length);
-	if (ERROR_OK != ret_val) {
+	if (ret_val != ERROR_OK) {
 		LOG_ERROR("Tx Write returned with error resp: %d", ret_val);
 		return ERROR_FAIL;
 	}
@@ -704,32 +749,116 @@ int cc_lpf3_write_ccfg(struct flash_bank *bank, const uint8_t *buffer,
 	cmd.flash_prog_ccfg_sector.skip_user_rec = 1;
 
 	ret_val = cc_lpf3_saci_send_cmd(bank, cmd);
-	if (ERROR_OK != ret_val) {
+	if (ret_val != ERROR_OK) {
 		LOG_ERROR("CCFG Cmd Fail");
 		ret_val = ERROR_FAIL;
 		goto FREE_AND_RETURN;
 	}
 
 	ret_val = cc_lpf3_saci_send_tx_words(bank, tx_words, MAX_CCFG_SIZE);
-	if (ERROR_OK != ret_val) {
+	if (ret_val != ERROR_OK) {
 		LOG_ERROR("CCFG Write Fail");
 		ret_val = ERROR_FAIL;
 		goto FREE_AND_RETURN;
 	}
 
 	ret_val = cc_lpf3_saci_read_response(bank, &cmd_resp);
-	if (ERROR_OK != ret_val) {
+	if (ret_val != ERROR_OK) {
 		LOG_ERROR("CCFG Resp Fail");
 		ret_val = ERROR_FAIL;
 		goto FREE_AND_RETURN;
 	}
 
+	if(cmd_resp.result != 0){
+		LOG_ERROR("CCFG Write Fail.");
+		ret_val = ERROR_FAIL;
+		goto FREE_AND_RETURN;
+	}
+
 	ret_val = cc_lpf3_saci_verify_ccfg(bank, buffer);
-	if (ERROR_OK != ret_val) {
+	if (ret_val != ERROR_OK) {
 		LOG_ERROR("CCFG Verify Fail");
 		ret_val = ERROR_FAIL;
 		goto FREE_AND_RETURN;
 	}
+
+FREE_AND_RETURN:
+	if (tx_words)
+		free(tx_words);
+
+	return ret_val;
+}
+
+/*
+ * Program SCFG
+ */
+int cc_lpf3_write_scfg(struct flash_bank *bank, const uint8_t *buffer,
+               uint32_t offset, uint32_t count)
+{
+    SACI_PARAM_T cmd;
+    SACI_RESP_T cmd_resp;
+    uint32_t *tx_words = NULL;
+    int ret_val;
+
+
+    // Make sure the buffer is sector aligned
+    if (buffer)
+    {
+        tx_words = malloc(count);
+        if (!tx_words) {
+            LOG_ERROR("Memory Allocation Fail for SCFG");
+            return ERROR_FAIL;
+        }
+        memset(tx_words, 0xFF, count);
+        memcpy(tx_words, buffer, count);
+    } else {
+        return ERROR_FAIL;
+    }
+
+    memset((uint8_t*)&cmd, 0, sizeof(SACI_PARAM_T));
+
+    cmd.common.cmd.cmd_id = SACI_FLASH_PROG_SCFG_SECTOR;
+    cmd.common.cmd.resp_seq_num = cc_lpf3_get_resp_seqnum();
+    cmd.common.cmd.cmd_specific = 0;  // No specific flags for SCFG
+    cmd.flash_prog_scfg_sector.key = FLASH_KEY;
+	cmd.flash_prog_scfg_sector.byte_count = count;
+
+    ret_val = cc_lpf3_saci_send_cmd(bank, cmd);
+    if (ret_val != ERROR_OK) {
+        LOG_ERROR("SCFG Cmd Fail");
+        ret_val = ERROR_FAIL;
+        goto FREE_AND_RETURN;
+    }
+
+	// Here count means byte count of the buffer that is going to be written into the flash.
+	uint32_t tx_words_count = count/4;
+
+    // Send only the SCFG data
+    ret_val = cc_lpf3_saci_send_tx_words(bank, tx_words, tx_words_count);
+    if (ret_val != ERROR_OK) {
+        LOG_ERROR("SCFG Write Fail");
+        ret_val = ERROR_FAIL;
+        goto FREE_AND_RETURN;
+    }
+
+    ret_val = cc_lpf3_saci_read_response(bank, &cmd_resp);
+	if (ret_val != ERROR_OK) {
+		LOG_ERROR("SCFG Resp Fail");
+		ret_val = ERROR_FAIL;
+		goto FREE_AND_RETURN;
+	}
+	if(cmd_resp.result != 0){
+		LOG_ERROR("SCFG write fail");
+		ret_val = ERROR_FAIL;
+        goto FREE_AND_RETURN;
+	}
+
+    ret_val = cc_lpf3_saci_verify_scfg(bank, buffer, count);
+    if (ret_val != ERROR_OK) {
+        LOG_ERROR("SCFG Verify Fail");
+        ret_val = ERROR_FAIL;
+        goto FREE_AND_RETURN;
+    }
 
 FREE_AND_RETURN:
 	if (tx_words)
@@ -800,17 +929,17 @@ int cc_lpf3_saci_send_cmd(struct flash_bank *bank, SACI_PARAM_T tx_cmd)
 	//Set bit 1 of TXCTL (0x204): CMD_START
 	//Indicates that TXD contains the first word of a command
 	ret_val = cc_lpf3_write_to_AP(bank, DEBUGSS_SEC_AP, SEC_AP_TXCTL, SACI_TXCTRL_CMD_START);
-	if (ERROR_OK != ret_val)
+	if (ret_val != ERROR_OK)
 		LOG_ERROR("saci_send_cmd: cmd Start Fail: %d", ret_val);
 
 	//Set TXD (0x200) with command
 	ret_val = cc_lpf3_write_to_AP(bank, DEBUGSS_SEC_AP, SEC_AP_TXD, tx_cmd.common.val);
-	if (ERROR_OK != ret_val)
+	if (ret_val != ERROR_OK)
 		LOG_ERROR("saci_send_cmd:cmd_id-%d Write Failed : %d", tx_cmd.common.cmd.cmd_id, ret_val);
 
 	if (cmd_length > (sizeof(SACI_PARAM_COMMON_T)/sizeof(uint32_t))) {
 		ret_val = cc_lpf3_wait_tx_data_clear(bank);
-		if (ERROR_OK != ret_val) {
+		if (ret_val != ERROR_OK) {
 			LOG_ERROR("saci_send_cmd : Cmd Clear Fail: %d", ret_val);
 			return ERROR_FAIL;
 		}
@@ -818,7 +947,7 @@ int cc_lpf3_saci_send_cmd(struct flash_bank *bank, SACI_PARAM_T tx_cmd)
 		//Clear bit 1 of TXCTL (0x204): CMD_START
 		//Indicates that TXD contains the first word of a command
 		ret_val = cc_lpf3_write_to_AP(bank, DEBUGSS_SEC_AP, SEC_AP_TXCTL, 0);//~SACI_TXCTRL_CMD_START);
-		if (ERROR_OK != ret_val) {
+		if (ret_val != ERROR_OK) {
 			LOG_ERROR("write_multi_param : Cmd Start Clear Fail: %d", ret_val);
 			return ERROR_FAIL;
 		}
@@ -832,11 +961,10 @@ int cc_lpf3_saci_send_cmd(struct flash_bank *bank, SACI_PARAM_T tx_cmd)
 		// clear allocated memory
 		memset(param_words, 0, sizeof(SACI_PARAM_T));
 		memcpy(param_words, &tx_cmd, sizeof(SACI_PARAM_T));
-
 		for (uint8_t cmd_word = 1; cmd_word<cmd_length; cmd_word++) {
 			//Set TXD (0x200) with command
 			ret_val = cc_lpf3_write_to_AP(bank, DEBUGSS_SEC_AP, SEC_AP_TXD, param_words[cmd_word]);
-			if (ERROR_OK != ret_val) {
+			if (ret_val != ERROR_OK) {
 				LOG_ERROR("saci_send_cmd:cmd_id-%d Write Failed : %d", tx_cmd.common.cmd.cmd_id, ret_val);
 				free(param_words);
 				return ERROR_FAIL;
@@ -872,7 +1000,7 @@ int cc_lpf3_check_boot_status(struct flash_bank *bank)
 	**	 1				1			In application	*
 	*************************************************/
 	ret_val = cc_lpf3_read_from_AP(bank, DEBUGSS_CFG_AP, CFG_AP_DEVICE_STATUS, &result);
-	if (ERROR_OK != ret_val)
+	if (ret_val != ERROR_OK)
 		LOG_INFO("Read Error in BootStatus");
 
 	//CFG-AP: DEVICESTATUS:BOOTSTA (bit 15:8 in the DEVICESTATUS register in CFG-AP)
@@ -900,7 +1028,7 @@ int cc_lpf3_exit_saci_run(struct flash_bank *bank)
 
 	cc_lpf3_update_cmd_word(SACI_BLDR_APP_EXIT_SACI_RUN, &cmd, 0);
 	ret_val = cc_lpf3_saci_send_cmd(bank, cmd);
-	if (ERROR_OK != ret_val)
+	if (ret_val != ERROR_OK)
 		return ret_val;
 
 	cc_lpf3_check_boot_status(bank);
