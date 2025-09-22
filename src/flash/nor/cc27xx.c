@@ -240,7 +240,10 @@ COMMAND_HANDLER(cc27xx_reset_halt_command)
 
 	//exit saci halt command
 	retval = cc_lpf3_exit_saci_halt(bank);
-	return ERROR_OK;
+
+	// Print the return value so it can be captured by TCL scripts using command substitution
+	command_print(CMD, "%d", retval);
+	return retval;
 }
 
 COMMAND_HANDLER(cc27xx_reset_run_command)
