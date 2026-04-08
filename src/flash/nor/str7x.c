@@ -131,21 +131,21 @@ static int str7x_build_block_list(struct flash_bank *bank)
 	int b0_sectors = 0, b1_sectors = 0;
 
 	switch (bank->size) {
-		case 16 * 1024:
-			b1_sectors = 2;
-			break;
-		case 64 * 1024:
-			b0_sectors = 5;
-			break;
-		case 128 * 1024:
-			b0_sectors = 6;
-			break;
-		case 256 * 1024:
-			b0_sectors = 8;
-			break;
-		default:
-			LOG_ERROR("BUG: unknown bank->size encountered");
-			exit(-1);
+	case 16 * 1024:
+		b1_sectors = 2;
+		break;
+	case 64 * 1024:
+		b0_sectors = 5;
+		break;
+	case 128 * 1024:
+		b0_sectors = 6;
+		break;
+	case 256 * 1024:
+		b0_sectors = 8;
+		break;
+	default:
+		LOG_ERROR("BUG: unknown bank->size encountered");
+		exit(-1);
 	}
 
 	num_sectors = b0_sectors + b1_sectors;
@@ -335,7 +335,7 @@ static int str7x_erase(struct flash_bank *bank, unsigned int first,
 	for (unsigned int i = first; i <= last; i++)
 		sectors |= str7x_info->sector_bits[i];
 
-	LOG_DEBUG("sectors: 0x%" PRIx32 "", sectors);
+	LOG_DEBUG("sectors: 0x%" PRIx32, sectors);
 
 	/* clear FLASH_ER register */
 	err = target_write_u32(target, str7x_get_flash_adr(bank, FLASH_ER), 0x0);
@@ -736,7 +736,7 @@ COMMAND_HANDLER(str7x_handle_disable_jtag_command)
 	target_read_u32(target, str7x_get_flash_adr(bank, FLASH_NVAPR1), &reg);
 	protection_regs = ~(reg >> 16);
 
-	while (((protection_regs) != 0) && (protection_level < 16)) {
+	while ((protection_regs != 0) && (protection_level < 16)) {
 		protection_regs >>= 1;
 		protection_level++;
 	}
@@ -753,7 +753,7 @@ COMMAND_HANDLER(str7x_handle_disable_jtag_command)
 		target_write_u32(target, str7x_get_flash_adr(bank, FLASH_CR0), flash_cmd);
 		target_write_u32(target, str7x_get_flash_adr(bank, FLASH_AR), 0x4010DFBC);
 		target_write_u32(target, str7x_get_flash_adr(bank, FLASH_DR0),
-				~(1 << (15 + protection_level)));
+				~(1U << (15 + protection_level)));
 		flash_cmd = FLASH_SPR | FLASH_WMS;
 		target_write_u32(target, str7x_get_flash_adr(bank, FLASH_CR0), flash_cmd);
 	}

@@ -192,30 +192,30 @@ bool is_arm_mode(unsigned int psr_mode)
 int arm_mode_to_number(enum arm_mode mode)
 {
 	switch (mode) {
-		case ARM_MODE_ANY:
-		/* map MODE_ANY to user mode */
-		case ARM_MODE_USR:
-			return 0;
-		case ARM_MODE_FIQ:
-			return 1;
-		case ARM_MODE_IRQ:
-			return 2;
-		case ARM_MODE_SVC:
-			return 3;
-		case ARM_MODE_ABT:
-			return 4;
-		case ARM_MODE_UND:
-			return 5;
-		case ARM_MODE_SYS:
-			return 6;
-		case ARM_MODE_MON:
-		case ARM_MODE_1176_MON:
-			return 7;
-		case ARM_MODE_HYP:
-			return 8;
-		default:
-			LOG_ERROR("invalid mode value encountered %d", mode);
-			return -1;
+	case ARM_MODE_ANY:
+	/* map MODE_ANY to user mode */
+	case ARM_MODE_USR:
+		return 0;
+	case ARM_MODE_FIQ:
+		return 1;
+	case ARM_MODE_IRQ:
+		return 2;
+	case ARM_MODE_SVC:
+		return 3;
+	case ARM_MODE_ABT:
+		return 4;
+	case ARM_MODE_UND:
+		return 5;
+	case ARM_MODE_SYS:
+		return 6;
+	case ARM_MODE_MON:
+	case ARM_MODE_1176_MON:
+		return 7;
+	case ARM_MODE_HYP:
+		return 8;
+	default:
+		LOG_ERROR("invalid mode value encountered %d", mode);
+		return -1;
 	}
 }
 
@@ -223,27 +223,27 @@ int arm_mode_to_number(enum arm_mode mode)
 enum arm_mode armv4_5_number_to_mode(int number)
 {
 	switch (number) {
-		case 0:
-			return ARM_MODE_USR;
-		case 1:
-			return ARM_MODE_FIQ;
-		case 2:
-			return ARM_MODE_IRQ;
-		case 3:
-			return ARM_MODE_SVC;
-		case 4:
-			return ARM_MODE_ABT;
-		case 5:
-			return ARM_MODE_UND;
-		case 6:
-			return ARM_MODE_SYS;
-		case 7:
-			return ARM_MODE_MON;
-		case 8:
-			return ARM_MODE_HYP;
-		default:
-			LOG_ERROR("mode index out of bounds %d", number);
-			return ARM_MODE_ANY;
+	case 0:
+		return ARM_MODE_USR;
+	case 1:
+		return ARM_MODE_FIQ;
+	case 2:
+		return ARM_MODE_IRQ;
+	case 3:
+		return ARM_MODE_SVC;
+	case 4:
+		return ARM_MODE_ABT;
+	case 5:
+		return ARM_MODE_UND;
+	case 6:
+		return ARM_MODE_SYS;
+	case 7:
+		return ARM_MODE_MON;
+	case 8:
+		return ARM_MODE_HYP;
+	default:
+		LOG_ERROR("mode index out of bounds %d", number);
+		return ARM_MODE_ANY;
 	}
 }
 
@@ -355,6 +355,7 @@ static const struct {
 	/* These exist only when the Virtualization Extensions is present */
 	[42] = { .name = "sp_hyp", .cookie = 13, .mode = ARM_MODE_HYP, .gdb_index = 51, },
 	[43] = { .name = "spsr_hyp", .cookie = 16, .mode = ARM_MODE_HYP, .gdb_index = 52, },
+	// .gdb_index numbering continues by ARM_VFP_V3_D0
 };
 
 static const struct {
@@ -659,15 +660,14 @@ static const struct reg_arch_type arm_reg_type = {
 
 struct reg_cache *arm_build_reg_cache(struct target *target, struct arm *arm)
 {
-	int num_regs = ARRAY_SIZE(arm_core_regs);
-	int num_core_regs = num_regs;
+	unsigned int num_regs = ARRAY_SIZE(arm_core_regs);
+	unsigned int num_core_regs = num_regs;
 	if (arm->arm_vfp_version == ARM_VFP_V3)
 		num_regs += ARRAY_SIZE(arm_vfp_v3_regs);
 
 	struct reg_cache *cache = malloc(sizeof(struct reg_cache));
 	struct reg *reg_list = calloc(num_regs, sizeof(struct reg));
 	struct arm_reg *reg_arch_info = calloc(num_regs, sizeof(struct arm_reg));
-	int i;
 
 	if (!cache || !reg_list || !reg_arch_info) {
 		free(cache);
@@ -681,7 +681,7 @@ struct reg_cache *arm_build_reg_cache(struct target *target, struct arm *arm)
 	cache->reg_list = reg_list;
 	cache->num_regs = 0;
 
-	for (i = 0; i < num_core_regs; i++) {
+	for (unsigned int i = 0; i < num_core_regs; i++) {
 		/* Skip registers this core doesn't expose */
 		if (arm_core_regs[i].mode == ARM_MODE_MON
 			&& arm->core_type != ARM_CORE_TYPE_SEC_EXT
@@ -690,8 +690,6 @@ struct reg_cache *arm_build_reg_cache(struct target *target, struct arm *arm)
 		if (arm_core_regs[i].mode == ARM_MODE_HYP
 			&& arm->core_type != ARM_CORE_TYPE_VIRT_EXT)
 			continue;
-
-		/* REVISIT handle Cortex-M, which only shadows R13/SP */
 
 		reg_arch_info[i].num = arm_core_regs[i].cookie;
 		reg_arch_info[i].mode = arm_core_regs[i].mode;
@@ -705,9 +703,6 @@ struct reg_cache *arm_build_reg_cache(struct target *target, struct arm *arm)
 		reg_list[i].type = &arm_reg_type;
 		reg_list[i].arch_info = &reg_arch_info[i];
 		reg_list[i].exist = true;
-
-		/* This really depends on the calling convention in use */
-		reg_list[i].caller_save = false;
 
 		/* Registers data type, as used by GDB target description */
 		reg_list[i].reg_data_type = malloc(sizeof(struct reg_data_type));
@@ -729,16 +724,22 @@ struct reg_cache *arm_build_reg_cache(struct target *target, struct arm *arm)
 		if (reg_list[i].number <= 15 || reg_list[i].number == 25) {
 			reg_list[i].feature->name = "org.gnu.gdb.arm.core";
 			reg_list[i].group = "general";
+			/* Registers which should be preserved across GDB inferior function calls.
+			 * Avoid saving banked registers as GDB (version 16.2 in time of writing)
+			 * does not take the current mode into account and messes the value
+			 * by restoring both the not banked register and the banked alias of it
+			 * in the current mode. */
+			reg_list[i].caller_save = true;
 		} else {
 			reg_list[i].feature->name = "net.sourceforge.openocd.banked";
 			reg_list[i].group = "banked";
+			reg_list[i].caller_save = false;
 		}
 
 		cache->num_regs++;
 	}
 
-	int j;
-	for (i = num_core_regs, j = 0; i < num_regs; i++, j++) {
+	for (unsigned int i = num_core_regs, j = 0; i < num_regs; i++, j++) {
 		reg_arch_info[i].num = arm_vfp_v3_regs[j].id;
 		reg_arch_info[i].mode = arm_vfp_v3_regs[j].mode;
 		reg_arch_info[i].target = target;
@@ -752,7 +753,8 @@ struct reg_cache *arm_build_reg_cache(struct target *target, struct arm *arm)
 		reg_list[i].arch_info = &reg_arch_info[i];
 		reg_list[i].exist = true;
 
-		reg_list[i].caller_save = false;
+		/* Mark d0 - d31 and fpscr as save-restore for GDB */
+		reg_list[i].caller_save = true;
 
 		reg_list[i].reg_data_type = malloc(sizeof(struct reg_data_type));
 		reg_list[i].reg_data_type->type = arm_vfp_v3_regs[j].type;
@@ -864,26 +866,26 @@ COMMAND_HANDLER(handle_armv4_5_reg_command)
 
 		/* label this bank of registers (or shadows) */
 		switch (arm_mode_data[mode].psr) {
-			case ARM_MODE_SYS:
+		case ARM_MODE_SYS:
+			continue;
+		case ARM_MODE_USR:
+			name = "System and User";
+			sep = "";
+			break;
+		case ARM_MODE_HYP:
+			if (arm->core_type != ARM_CORE_TYPE_VIRT_EXT)
 				continue;
-			case ARM_MODE_USR:
-				name = "System and User";
-				sep = "";
-				break;
-			case ARM_MODE_HYP:
-				if (arm->core_type != ARM_CORE_TYPE_VIRT_EXT)
-					continue;
-			/* FALLTHROUGH */
-			case ARM_MODE_MON:
-			case ARM_MODE_1176_MON:
-				if (arm->core_type != ARM_CORE_TYPE_SEC_EXT
-					&& arm->core_type != ARM_CORE_TYPE_VIRT_EXT)
-					continue;
-			/* FALLTHROUGH */
-			default:
-				name = arm_mode_data[mode].name;
-				shadow = "shadow ";
-				break;
+		/* FALLTHROUGH */
+		case ARM_MODE_MON:
+		case ARM_MODE_1176_MON:
+			if (arm->core_type != ARM_CORE_TYPE_SEC_EXT
+				&& arm->core_type != ARM_CORE_TYPE_VIRT_EXT)
+				continue;
+		/* FALLTHROUGH */
+		default:
+			name = arm_mode_data[mode].name;
+			shadow = "shadow ";
+			break;
 		}
 		command_print(CMD, "%s%s mode %sregisters",
 			sep, name, shadow);
@@ -950,7 +952,7 @@ COMMAND_HANDLER(handle_arm_core_state_command)
 
 COMMAND_HANDLER(handle_arm_disassemble_command)
 {
-#if HAVE_CAPSTONE
+#ifdef HAVE_CAPSTONE
 	struct target *target = get_current_target(CMD_CTX);
 
 	if (!target) {
@@ -974,26 +976,26 @@ COMMAND_HANDLER(handle_arm_disassemble_command)
 	}
 
 	switch (CMD_ARGC) {
-		case 3:
-			if (strcmp(CMD_ARGV[2], "thumb") != 0)
-				return ERROR_COMMAND_SYNTAX_ERROR;
-			thumb = true;
-		/* FALL THROUGH */
-		case 2:
-			COMMAND_PARSE_NUMBER(uint, CMD_ARGV[1], count);
-		/* FALL THROUGH */
-		case 1:
-			COMMAND_PARSE_ADDRESS(CMD_ARGV[0], address);
-			if (address & 0x01) {
-				if (!thumb) {
-					command_print(CMD, "Disassemble as Thumb");
-					thumb = true;
-				}
-				address &= ~1;
-			}
-			break;
-		default:
+	case 3:
+		if (strcmp(CMD_ARGV[2], "thumb") != 0)
 			return ERROR_COMMAND_SYNTAX_ERROR;
+		thumb = true;
+	/* FALL THROUGH */
+	case 2:
+		COMMAND_PARSE_NUMBER(uint, CMD_ARGV[1], count);
+	/* FALL THROUGH */
+	case 1:
+		COMMAND_PARSE_ADDRESS(CMD_ARGV[0], address);
+		if (address & 0x01) {
+			if (!thumb) {
+				command_print(CMD, "Disassemble as Thumb");
+				thumb = true;
+			}
+			address &= ~1;
+		}
+		break;
+	default:
+		return ERROR_COMMAND_SYNTAX_ERROR;
 	}
 
 	return arm_disassemble(CMD, target, address, count, thumb);
@@ -1314,14 +1316,14 @@ int arm_get_gdb_reg_list(struct target *target,
 
 	case REG_CLASS_ALL:
 		switch (arm->core_type) {
-			case ARM_CORE_TYPE_SEC_EXT:
-				*reg_list_size = 51;
-				break;
-			case ARM_CORE_TYPE_VIRT_EXT:
-				*reg_list_size = 53;
-				break;
-			default:
-				*reg_list_size = 48;
+		case ARM_CORE_TYPE_SEC_EXT:
+			*reg_list_size = 51;
+			break;
+		case ARM_CORE_TYPE_VIRT_EXT:
+			*reg_list_size = 53;
+			break;
+		default:
+			*reg_list_size = 48;
 		}
 		unsigned int list_size_core = *reg_list_size;
 		if (arm->arm_vfp_version == ARM_VFP_V3)
@@ -1413,7 +1415,6 @@ int armv4_5_run_algorithm_inner(struct target *target,
 	uint32_t context[17];
 	uint32_t cpsr;
 	int exit_breakpoint_size = 0;
-	int i;
 	int retval = ERROR_OK;
 
 	LOG_TARGET_DEBUG(target, "Running algorithm");
@@ -1442,7 +1443,7 @@ int armv4_5_run_algorithm_inner(struct target *target,
 	/* save r0..pc, cpsr-or-spsr, and then cpsr-for-sure;
 	 * they'll be restored later.
 	 */
-	for (i = 0; i <= 16; i++) {
+	for (unsigned int i = 0; i < ARRAY_SIZE(context); i++) {
 		struct reg *r;
 
 		r = &ARMV4_5_CORE_REG_MODE(arm->core_cache,
@@ -1454,7 +1455,7 @@ int armv4_5_run_algorithm_inner(struct target *target,
 	}
 	cpsr = buf_get_u32(arm->cpsr->value, 0, 32);
 
-	for (i = 0; i < num_mem_params; i++) {
+	for (int i = 0; i < num_mem_params; i++) {
 		if (mem_params[i].direction == PARAM_IN)
 			continue;
 		retval = target_write_buffer(target, mem_params[i].address, mem_params[i].size,
@@ -1463,7 +1464,7 @@ int armv4_5_run_algorithm_inner(struct target *target,
 			return retval;
 	}
 
-	for (i = 0; i < num_reg_params; i++) {
+	for (int i = 0; i < num_reg_params; i++) {
 		if (reg_params[i].direction == PARAM_IN)
 			continue;
 
@@ -1524,7 +1525,7 @@ int armv4_5_run_algorithm_inner(struct target *target,
 	if (retval != ERROR_OK)
 		return retval;
 
-	for (i = 0; i < num_mem_params; i++) {
+	for (int i = 0; i < num_mem_params; i++) {
 		if (mem_params[i].direction != PARAM_OUT) {
 			int retvaltemp = target_read_buffer(target, mem_params[i].address,
 					mem_params[i].size,
@@ -1534,7 +1535,7 @@ int armv4_5_run_algorithm_inner(struct target *target,
 		}
 	}
 
-	for (i = 0; i < num_reg_params; i++) {
+	for (int i = 0; i < num_reg_params; i++) {
 		if (reg_params[i].direction != PARAM_OUT) {
 
 			struct reg *reg = register_get_by_name(arm->core_cache,
@@ -1559,12 +1560,12 @@ int armv4_5_run_algorithm_inner(struct target *target,
 	}
 
 	/* restore everything we saved before (17 or 18 registers) */
-	for (i = 0; i <= 16; i++) {
+	for (unsigned int i = 0; i < ARRAY_SIZE(context); i++) {
 		uint32_t regvalue;
 		regvalue = buf_get_u32(ARMV4_5_CORE_REG_MODE(arm->core_cache,
 				arm_algorithm_info->core_mode, i).value, 0, 32);
 		if (regvalue != context[i]) {
-			LOG_DEBUG("restoring register %s with value 0x%8.8" PRIx32 "",
+			LOG_DEBUG("restoring register %s with value 0x%8.8" PRIx32,
 				ARMV4_5_CORE_REG_MODE(arm->core_cache,
 				arm_algorithm_info->core_mode, i).name, context[i]);
 			buf_set_u32(ARMV4_5_CORE_REG_MODE(arm->core_cache,
@@ -1637,8 +1638,10 @@ int arm_checksum_memory(struct target *target,
 		retval = target_write_u32(target,
 				crc_algorithm->address + i * sizeof(uint32_t),
 				le_to_h_u32(&arm_crc_code_le[i * 4]));
-		if (retval != ERROR_OK)
-			goto cleanup;
+		if (retval != ERROR_OK) {
+			target_free_working_area(target, crc_algorithm);
+			return retval;
+		}
 	}
 
 	arm_algo.common_magic = ARM_COMMON_MAGIC;
@@ -1671,7 +1674,6 @@ int arm_checksum_memory(struct target *target,
 	destroy_reg_param(&reg_params[0]);
 	destroy_reg_param(&reg_params[1]);
 
-cleanup:
 	target_free_working_area(target, crc_algorithm);
 
 	return retval;
@@ -1684,7 +1686,8 @@ cleanup:
  *
  */
 int arm_blank_check_memory(struct target *target,
-	struct target_memory_check_block *blocks, int num_blocks, uint8_t erased_value)
+	struct target_memory_check_block *blocks, unsigned int num_blocks,
+	uint8_t erased_value, unsigned int *checked)
 {
 	struct working_area *check_algorithm;
 	struct reg_param reg_params[3];
@@ -1718,8 +1721,10 @@ int arm_blank_check_memory(struct target *target,
 				check_algorithm->address
 				+ i * sizeof(uint32_t),
 				le_to_h_u32(&check_code_le[i * 4]));
-		if (retval != ERROR_OK)
-			goto cleanup;
+		if (retval != ERROR_OK) {
+			target_free_working_area(target, check_algorithm);
+			return retval;
+		}
 	}
 
 	arm_algo.common_magic = ARM_COMMON_MAGIC;
@@ -1744,20 +1749,18 @@ int arm_blank_check_memory(struct target *target,
 			exit_var,
 			10000, &arm_algo);
 
-	if (retval == ERROR_OK)
+	if (retval == ERROR_OK) {
 		blocks[0].result = buf_get_u32(reg_params[2].value, 0, 32);
+		*checked = 1;	/* only one block has been checked */
+	}
 
 	destroy_reg_param(&reg_params[0]);
 	destroy_reg_param(&reg_params[1]);
 	destroy_reg_param(&reg_params[2]);
 
-cleanup:
 	target_free_working_area(target, check_algorithm);
 
-	if (retval != ERROR_OK)
-		return retval;
-
-	return 1;       /* only one block has been checked */
+	return retval;
 }
 
 static int arm_full_context(struct target *target)

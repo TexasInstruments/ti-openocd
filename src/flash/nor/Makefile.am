@@ -12,6 +12,7 @@ NOR_DRIVERS = \
 	%D%/aduc702x.c \
 	%D%/aducm360.c \
 	%D%/ambiqmicro.c \
+	%D%/artery.c \
 	%D%/at91sam4.c \
 	%D%/at91sam4l.c \
 	%D%/at91samd.c \
@@ -21,6 +22,7 @@ NOR_DRIVERS = \
 	%D%/atsamv.c \
 	%D%/atsame5.c \
 	%D%/avrf.c \
+	%D%/bl602.c \
 	%D%/bluenrg-x.c \
 	%D%/cc3220sf.c \
 	%D%/cc26xx.c \
@@ -58,6 +60,7 @@ NOR_DRIVERS = \
 	%D%/psoc5lp.c \
 	%D%/psoc6.c \
 	%D%/qn908x.c \
+	%D%/read_only.c \
 	%D%/renesas_rpchf.c \
 	%D%/rp2xxx.c \
 	%D%/rsl10.c \
@@ -82,9 +85,11 @@ NOR_DRIVERS = \
 	%D%/w600.c \
 	%D%/xcf.c \
 	%D%/xmc1xxx.c \
-	%D%/xmc4xxx.c
+	%D%/xmc4xxx.c \
+	%D%/hpm_xpi.c
 
 NORHEADERS = \
+	%D%/artery.h \
 	%D%/core.h \
 	%D%/cc3220sf.h \
 	%D%/bluenrg-x.h \
