@@ -60,7 +60,11 @@
 #define GSC_REG_FPC_FLSEMCLR            (GSC_BASE + 0x804)
 #define GSC_REG_FPC_FLSEMREQ            (GSC_BASE + 0x800)
 #define GSC_REG_FPC_FLSEMSTAT           (GSC_BASE + 0x808)
- 
+
+/* VTOR Register Address */
+#define VTOR_SCB_REG					0XE000ED08
+#define VTOR_GSC_REG					0X40047B80
+
 /* Mentioned in TRM Architecture(Factory Constants) Section */
 /* DID Register bit field positions */
 static const unsigned char did_version_hi = 31;
@@ -119,6 +123,9 @@ static const unsigned int kilobyte_to_byte = 1024;
 #define FPC_FMSEM_CLEAR                 0x00000001
 #define FPC_FMSEM_REQUEST               0x00000001
 
+/* VTOR REGISTER VALUE */
+#define VTOR_SCB_REG_VAL				0x10000000
+#define VTOR_GSC_REG_VAL				0x10000001
 /* Maximum protection registers */
 #define MSPM33_MAX_PROTREGS             2
 
@@ -244,6 +251,21 @@ static void mspm33_clear_gsc_semaphore(struct flash_bank *bank)
 {
 	struct target *target = bank->target;
 	target_write_u32(target, GSC_REG_FPC_FLSEMCLR, FPC_FMSEM_CLEAR);
+}
+
+/* 
+ * Write 0x10000000 at VTOR
+ */
+static int mspm33_write_vtor(struct flash_bank *bank)
+{
+	struct target *target = bank->target;
+	int retval;
+
+	retval = target_write_u32(target, VTOR_SCB_REG, VTOR_SCB_REG_VAL);
+	if (retval != ERROR_OK)
+		return retval;
+
+	return target_write_u32(target, VTOR_GSC_REG, VTOR_GSC_REG_VAL);
 }
 
 /*
@@ -882,6 +904,11 @@ static int mspm33_write(struct flash_bank *bank, const unsigned char *buffer,
 	 * must be re-configured by software before a new operation is
 	 * initiated
 	 */
+
+
+	retval = mspm33_write_vtor(bank);
+	if (retval != ERROR_OK)
+		return retval;
 
 	mspm33_clear_gsc_semaphore(bank);
 
