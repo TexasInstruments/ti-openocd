@@ -81,6 +81,9 @@
 #define AM13_SECTOR_SIZE_BYTES          0x800
 #define TI_MANUFACTURER_ID              0x17
 
+/* VTOR Register Address (Cortex-M SCB->VTOR) */
+#define VTOR_SCB_REG                    0xE000ED08
+
 /* Algorithm is loaded at the base of SRAM */
 #define AM13_ALGO_BASE          0x20000000
 
@@ -627,6 +630,12 @@ static int am13_write(struct flash_bank *bank, const uint8_t *buffer,
 	}
 
 	int quit_ret = am13_algo_quit(bank);
+
+	/* Set VTOR to flash base (0x0) so the application runs correctly after reset */
+	retval = target_write_u32(target, VTOR_SCB_REG, 0x00000000);
+	if (retval != ERROR_OK)
+		LOG_WARNING("AM13: failed to write VTOR");
+
 	return (retval != ERROR_OK) ? retval : quit_ret;
 }
 
